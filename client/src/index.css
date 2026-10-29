@@ -1,0 +1,279 @@
+/* ==========================================================================
+ * SuperRolScreen — Overlay styles
+ * Fuentes externas primero (las @import deben ir antes que cualquier regla).
+ * ========================================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap');
+
+/* Tailwind v4 (con @tailwindcss/vite). Si usas Tailwind v3, reemplaza esta
+   línea por:  @tailwind base; @tailwind components; @tailwind utilities; */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* Display real de 7 segmentos (DSEG7, licencia OFL) */
+@font-face {
+  font-family: 'DSEG7 Classic';
+  src: url('https://cdn.jsdelivr.net/npm/dseg@0.46.0/fonts/DSEG7-Classic/DSEG7Classic-Bold.woff2')
+    format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --led: #4df3ff; /* cian fósforo (combina con el LED azul del chasis) */
+  --led-fail: #ffb03b; /* ámbar (combina con el acento naranja del chasis) */
+  --led-glow: color-mix(in srgb, var(--led) 70%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+ * Lienzo base: 1920x1080 transparente para OBS / Browser Source
+ * ------------------------------------------------------------------------ */
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --------------------------------------------------------------------------
+ * Tipografías
+ * ------------------------------------------------------------------------ */
+.font-led {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+}
+
+.seg {
+  font-family: 'DSEG7 Classic', 'Orbitron', 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Segmentos "apagados" detrás de los dígitos (look LCD real) */
+.seg-ghost {
+  opacity: 0.09;
+  text-shadow: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Display LED (glow)
+ * ------------------------------------------------------------------------ */
+.led {
+  color: var(--led);
+  text-shadow:
+    0 0 2px var(--led),
+    0 0 8px var(--led-glow);
+  filter: drop-shadow(0 0 3px var(--led-glow));
+}
+
+.led--fail {
+  --led: var(--led-fail);
+  --led-glow: color-mix(in srgb, var(--led-fail) 70%, transparent);
+}
+
+.led-divider {
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, transparent, currentColor 15%, currentColor 85%, transparent);
+  opacity: 0.35;
+}
+
+/* --------------------------------------------------------------------------
+ * Chasis y pantalla del HUD
+ * ------------------------------------------------------------------------ */
+.hud-frame {
+  filter: drop-shadow(0 18px 28px rgb(0 0 0 / 0.65));
+}
+
+.hud-screen {
+  border-radius: 3px;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgb(0 60 70 / 0.55), transparent 75%),
+    #020607;
+  box-shadow:
+    inset 0 0 18px rgb(0 0 0 / 0.9),
+    inset 0 0 2px rgb(77 243 255 / 0.25);
+}
+
+.hud-scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.28) 0px,
+    rgb(0 0 0 / 0.28) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+}
+
+.hud-scanbar {
+  top: 0;
+  height: 30%;
+  background: linear-gradient(to bottom, transparent, rgb(77 243 255 / 0.07), transparent);
+  animation: scanbar 4.5s linear infinite;
+}
+
+@keyframes scanbar {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(340%); }
+}
+
+/* LED de conexión sobre el indicador STATUS del chasis */
+.hud-status-led {
+  position: absolute;
+  z-index: 15;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+}
+
+.hud-status-led--open {
+  background: #4df3ff;
+  box-shadow: 0 0 6px #4df3ff, 0 0 14px rgb(77 243 255 / 0.7);
+}
+
+.hud-status-led--connecting {
+  background: #ffb03b;
+  box-shadow: 0 0 6px #ffb03b;
+  animation: led-pulse 1s ease-in-out infinite;
+}
+
+.hud-status-led--closed {
+  background: #ff3b5c;
+  box-shadow: 0 0 6px #ff3b5c;
+  animation: blink 0.6s steps(1) infinite;
+}
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Parpadeo al recibir una tirada nueva (estilo CRT encendiéndose) */
+.hud-flicker {
+  animation: hud-flicker 0.9s linear both;
+}
+
+@keyframes hud-flicker {
+  0% { opacity: 0; filter: brightness(3) drop-shadow(0 0 8px var(--led)); }
+  8% { opacity: 1; }
+  14% { opacity: 0.1; }
+  22% { opacity: 1; }
+  30% { opacity: 0.25; }
+  40% { opacity: 1; filter: brightness(1.8) drop-shadow(0 0 6px var(--led)); }
+  52% { opacity: 0.6; }
+  62%, 100% { opacity: 1; filter: brightness(1) drop-shadow(0 0 3px var(--led-glow)); }
+}
+
+.cursor-blink { animation: blink 1s steps(1) infinite; }
+.crit-blink { animation: blink 0.5s steps(1) infinite; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* --------------------------------------------------------------------------
+ * Animaciones estilo diapositiva (PowerPoint)
+ * ------------------------------------------------------------------------ */
+.ppt-in-fade { animation: ppt-fade-in 0.8s ease-out both; }
+.ppt-in-zoom { animation: ppt-zoom-in 0.9s linear both; }
+.ppt-in-fly-left { animation: ppt-fly-left 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ppt-in-fly-right { animation: ppt-fly-right 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ppt-in-fly-top { animation: ppt-fly-top 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Duración = MEDIA_EXIT_MS en App.tsx (700 ms) */
+.ppt-out { animation: ppt-fade-out 0.7s ease-in forwards; }
+
+@keyframes ppt-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Zoom elástico (rebote amortiguado) */
+@keyframes ppt-zoom-in {
+  0% { opacity: 0; transform: scale(0.2); }
+  40% { opacity: 1; transform: scale(1.12); }
+  60% { transform: scale(0.95); }
+  78% { transform: scale(1.03); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Entra desde la izquierda */
+@keyframes ppt-fly-left {
+  0% { opacity: 0; transform: translateX(-1300px) rotate(-4deg); }
+  70% { opacity: 1; transform: translateX(24px) rotate(0.6deg); }
+  100% { opacity: 1; transform: translateX(0) rotate(0); }
+}
+
+/* Entra desde la derecha */
+@keyframes ppt-fly-right {
+  0% { opacity: 0; transform: translateX(1100px) rotate(4deg); }
+  70% { opacity: 1; transform: translateX(-24px) rotate(-0.6deg); }
+  100% { opacity: 1; transform: translateX(0) rotate(0); }
+}
+
+/* Cae desde arriba */
+@keyframes ppt-fly-top {
+  0% { opacity: 0; transform: translateY(-900px); }
+  70% { opacity: 1; transform: translateY(18px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ppt-fade-out {
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to { opacity: 0; transform: scale(0.94); filter: blur(4px); }
+}
+
+/* --------------------------------------------------------------------------
+ * Marco de la imagen / GIF
+ * ------------------------------------------------------------------------ */
+.media-frame {
+  padding: 6px;
+  border: 1px solid rgb(77 243 255 / 0.45);
+  border-radius: 6px;
+  background: rgb(4 10 14 / 0.75);
+  box-shadow:
+    0 0 24px rgb(77 243 255 / 0.25),
+    0 24px 48px rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.media-frame > img,
+.media-frame > video {
+  border-radius: 3px;
+}
+
+.media-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: var(--led);
+  border-style: solid;
+  filter: drop-shadow(0 0 4px var(--led));
+}
+
+.media-corner--tl { top: -8px; left: -8px; border-width: 3px 0 0 3px; }
+.media-corner--tr { top: -8px; right: -8px; border-width: 3px 3px 0 0; }
+.media-corner--bl { bottom: -8px; left: -8px; border-width: 0 0 3px 3px; }
+.media-corner--br { bottom: -8px; right: -8px; border-width: 0 3px 3px 0; }
+
+.media-caption {
+  padding: 6px 14px;
+  border: 1px solid rgb(77 243 255 / 0.35);
+  border-radius: 4px;
+  background: rgb(2 8 10 / 0.8);
+  color: var(--led);
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--led-glow);
+}
