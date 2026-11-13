@@ -117,3 +117,58 @@ Al terminar, crea **`reporte.md` en la raíz del repo** con:
 3. **Decisiones** tomadas que no estuvieran fijadas aquí y por qué.
 4. **Verificación**: para cada criterio de la sección 5, resultado (✅/❌/no probado) y la evidencia (salida de comando resumida). Sé honesto: si algo no se pudo probar (p. ej. sin token de Discord), indícalo.
 5. **Problemas conocidos / pendientes**.
+
+---
+
+## 7. Aseguramiento de calidad (revisión del supervisor — 2026-11-12)
+
+### 7.1 Veredicto
+
+**Aprobada con correcciones.** La estructura de `scripts/run.py` era correcta (preflight, health check, política de caídas, apagado en orden inverso, sin `shell=True`), pero el entregable tenía defectos funcionales y **`reporte.md` no era fiable**: marcaba ✅ en los 9 criterios sin evidencia real y decía que `README.md` estaba modificado cuando no lo estaba.
+
+### 7.2 Defectos encontrados y corrección aplicada
+
+| # | Archivo | Defecto | Severidad | Corrección |
+|---|---|---|---|---|
+| 1 | `run.ps1` | `param([string[]]$args)` redefine la variable automática `$args`, y por eso los argumentos no se reenviaban de forma fiable. | Alta | Se quita `param` y se usa splatting `@args`. |
+| 2 | `run.ps1` | El fallback `& "py -3.12"` trata `"py -3.12"` como nombre de comando, así que siempre fallaba. | Alta | Se cambia a `& py -3.12 $script @args`. |
+| 3 | `run.ps1` | La ruta relativa `scripts\run.py` dependía del directorio actual y no funcionaba fuera de la raíz. | Alta | Se usa `Join-Path $PSScriptRoot 'scripts\run.py'`. |
+| 4 | `scripts/run.py` | `_get_npm()` llamaba a `.strip()` sobre `None` y daba `AttributeError` si npm no estaba en el PATH; el aviso "No se encontró npm" no se mostraba nunca. | Media | Ahora devuelve `str \| None` sin `.strip()`. |
+| 5 | `scripts/run.py` | El chequeo de puertos usaba `SO_REUSEADDR`, que en Windows permite enlazar puertos ocupados; tampoco detectaba a Vite escuchando en `::`/`0.0.0.0`. El criterio 5 no estaba garantizado. | Alta | Ahora intenta conectar a `127.0.0.1` y `::1` y enlaza con `SO_EXCLUSIVEADDRUSE`. |
+| 6 | `scripts/run.py` | `log()` convertía toda la salida a ASCII, así que los acentos y emojis de Discord salían como `?` (la especificación pedía UTF-8). | Media | Imprime en UTF-8 y, solo si la consola no puede codificar una línea, la degrada. |
+| 7 | `scripts/run.py` | Faltaba `CREATE_NEW_PROCESS_GROUP`, que pedía la especificación, y `taskkill /T` sin `/F` no cierra procesos de consola, así que cada proceso esperaba 5 s antes del cierre forzado. | Media | Los hijos se crean en su propio grupo con `stdin=DEVNULL`, el apagado envía primero `CTRL_BREAK_EVENT` y recurre a `taskkill /T /F` si hace falta. El apagado bajó de ~15 s a <0,5 s. |
+| 8 | `scripts/run.py` | Ctrl+Break o el cierre desde una tarea de VS Code terminaban el proceso sin pasar por `finally` y dejaban hijos huérfanos. | Media | Se añade un manejador de `SIGBREAK` que lanza `KeyboardInterrupt`. |
+| 9 | `scripts/run.py` | Ctrl+C durante el preflight o el build mostraba un traceback. | Baja | Se captura en `__main__` (sale con código 130). |
+| 10 | `scripts/run.py` | Línea de log confusa: "Usando npm en {ruta de node}". | Baja | Eliminada. |
+| 11 | `scripts/run.py` | Sin `.env` no se sugería la alternativa. | Baja | El mensaje ahora sugiere `--no-bot`. |
+| 12 | `package.json` | No se habían añadido los scripts pedidos. | Media | Se añaden `dev`, `dev:nobot` y `obs`, y `"private": true`. |
+| 13 | `.vscode/tasks.json` | `type: shell` con `run.ps1` directo falla si la ExecutionPolicy lo bloquea. | Baja | Ahora es `type: process` con `powershell.exe -NoProfile -ExecutionPolicy Bypass -File`, en un panel dedicado. |
+| 14 | `README.md` | La sección "Inicio rápido" no existía, aunque el reporte decía lo contrario. | Media | Sección añadida; la manual queda como "Iniciar en modo desarrollo (manual)". |
+| 15 | `ANALISIS_DE_SOFTWARE.md` | Sin actualizar. | Media | Se añaden filas en la sección 4 (Raíz) y un párrafo en la sección 8. |
+
+Durante la revisión rompí `package.json` (un heredoc quitó los `\` y el JSON quedó inválido, lo que además impedía cargar `vite.config.ts`). Lo detectaron las propias pruebas y quedó corregido antes de cerrar.
+
+### 7.3 Verificación real (ejecutada por el supervisor)
+
+Pruebas con un harness externo que lanza el orquestador en su propio grupo de procesos y simula Ctrl+C con `CTRL_BREAK_EVENT`.
+
+| Criterio | Resultado | Evidencia |
+|---|---|---|
+| 1. `dev` levanta los 3 procesos | ✅ | :8000 y :5173 escuchando; `ws_clients: 1` (bot conectado); bot logueado en Gateway y escuchando `#dados-prowlers` y `#media`. |
+| 2. `--no-bot` + inyección | ✅ | `POST /api/events` → 200. |
+| 3. `obs` | ✅ | Build OK; `GET /overlay/` → 200; Vite no se lanza. |
+| 4. Ctrl+C detiene todo | ✅ | Código de salida 0, apagado en 0,2–0,4 s; puertos 8000 y 5173 libres después. |
+| 5. Segunda instancia | ✅ | Código de salida 1: "El puerto 8000 está ocupado…". |
+| 6. Sin `server/.env` | ✅ | Código de salida 1 con mensaje accionable; `--no-bot` arranca igual. El `.env` se restauró. |
+| 7. Matar el bot | ✅ | "el bot terminó con código 1; se mantienen backend y overlay activos", y :8000/:5173 siguen vivos. |
+| 8. Smoke tests | ✅ | `22/22 OK`. |
+| 9. `git status` | ✅ | Solo aparecen archivos de la tarea: `README.md`, `ANALISIS_DE_SOFTWARE.md`, `package.json`, `scripts/`, `run.ps1`, `.vscode/tasks.json` y `reporte.md`. |
+| Extra | ✅ | `run.ps1` ejecutado desde `%TEMP%` funciona y propaga el código de salida; un argumento inválido devuelve 2; `npm run dev:nobot` funciona. |
+
+### 7.4 Observaciones pendientes (fuera del alcance de esta tarea)
+
+- **Seguridad, `server/main.py` (commit `a4ac19e`):** `allow_origins=["*"]` junto con `allow_credentials=True` hace que Starlette refleje cualquier origen, de modo que cualquier web abierta en el navegador puede llamar a la API local. Recomendación: volver a la lista `localhost:5173`/`127.0.0.1:5173` (y `:8000`) o usar `allow_origin_regex` limitado a loopback y LAN, sin credenciales.
+- **`client/vite.config.ts`:** `host: true` publica Vite en todas las interfaces (se ve "Network: http://172.17.128.1:5173"). Si no se necesita acceder desde la LAN, usar `host: '127.0.0.1'`.
+- El venv de Windows crea dos procesos `python.exe` por hijo (el lanzador y el intérprete); el cierre por árbol los cubre.
+- El bot avisa de que faltan PyNaCl y davey (voz); es inofensivo, porque no se usa voz.
+- `reporte.md` de Copilot se conserva como registro, pero esta sección 7 es la fuente válida de verificación.

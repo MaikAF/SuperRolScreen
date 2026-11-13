@@ -93,7 +93,10 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 |---|---|
 | `README.md` | Guía para instalar, configurar, arrancar y utilizar el proyecto con OBS. |
 | `ANALISIS_DE_SOFTWARE.md` | Documento técnico para entender la arquitectura y orientar cambios futuros. |
-| `package.json` | Manifiesto de nivel raíz actualmente sin dependencias ni scripts. |
+| `package.json` | Manifiesto de nivel raíz sin dependencias; scripts `dev`, `dev:nobot` y `obs` que invocan el orquestador. |
+| `scripts/run.py` | Orquestador (solo librería estándar): preflight, arranque ordenado con health check, logs unificados con prefijo, política de caídas y apagado del árbol de procesos. |
+| `run.ps1` | Atajo de PowerShell para `scripts/run.py` con el Python del venv; propaga el código de salida. |
+| `.vscode/tasks.json` | Tareas de VS Code que ejecutan `run.ps1` en los modos `dev`, `obs`, `--no-bot` y `--no-client`. |
 | `media/Gameplay/` | Clips de fondo enumerados por el backend. Admite MP4, WebM, M4V y MOV. |
 | `media/HUD/` | Recursos del HUD; el cliente espera `Dados Hud.png`. |
 | `media/cache/` | Caché local de archivos descargados desde Discord. |
@@ -198,6 +201,8 @@ El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`
 ## 8. Ejecución y validación
 
 Las instrucciones de preparación y ejecución están en [README.md](./README.md). En resumen, se ejecutan backend, cliente Vite y listener como procesos separados en desarrollo; para OBS se compila el cliente y se sirve el build desde FastAPI.
+
+`scripts/run.py` (vía `run.ps1`) orquesta esos procesos. En el modo `dev` lanza backend, Vite y bot; en el modo `obs` ejecuta `npm run build` y lanza backend y bot. El bot y Vite solo arrancan cuando `/api/health` responde. En Windows cada hijo se crea en su propio grupo de procesos, y el apagado envía `CTRL_BREAK` y recurre a `taskkill /T /F` si el proceso no termina en 5 s. Si el backend o Vite terminan, se detiene todo; si termina el bot, no se reinicia y el resto sigue activo. El chequeo de puertos no usa `SO_REUSEADDR`, porque en Windows esa opción permite enlazar puertos ocupados.
 
 Prueba de humo desde `server/`:
 

@@ -48,9 +48,24 @@ cd ..\client
 npm ci
 ```
 
-## Iniciar en modo desarrollo
+## Inicio rápido (un solo comando)
 
-Abre tres terminales PowerShell y ejecuta los comandos en el orden indicado:
+Desde la raíz del repositorio (o desde cualquier carpeta, indicando la ruta del script):
+
+```powershell
+.\run.ps1              # desarrollo: backend + overlay Vite + bot
+.\run.ps1 obs          # compila el overlay y levanta backend + bot (OBS en /overlay/)
+.\run.ps1 --no-bot     # sin bot de Discord, para pruebas con /api/events
+.\run.ps1 --no-client  # solo backend + bot (sin Vite)
+```
+
+El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
+
+Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
+
+## Iniciar en modo desarrollo (manual)
+
+Si prefieres controlar cada proceso por separado, abre tres terminales PowerShell y ejecuta los comandos en el orden indicado:
 
 **1. Backend** (desde `server/`):
 

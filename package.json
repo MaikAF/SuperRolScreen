@@ -1,4 +1,10 @@
 {
+  "private": true,
+  "scripts": {
+    "dev": "server\\.venv\\Scripts\\python.exe scripts/run.py dev",
+    "dev:nobot": "server\\.venv\\Scripts\\python.exe scripts/run.py dev --no-bot",
+    "obs": "server\\.venv\\Scripts\\python.exe scripts/run.py obs"
+  },
   "dependencies": {
   }
 }
