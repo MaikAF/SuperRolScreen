@@ -12,6 +12,8 @@ const HUD_FRAME_URL = `${API_BASE}/media/HUD/${encodeURIComponent('Dados Hud.png
 
 const RECONNECT_DELAY_MS = 3000;
 const CLIPS_RETRY_MS = 5000;
+const SWAP_RELOAD_DELAY_MS = 100;
+const PLAYBACK_WATCHDOG_MS = 2000;
 const SHUFFLE_CLIPS = false; // true = orden aleatorio (sin repetir el mismo clip dos veces seguidas)
 
 const MEDIA_DISPLAY_MS = 8000; // tiempo visible en pantalla
@@ -249,19 +251,27 @@ function GameplayLoop() {
   const clipsRef = useRef<string[]>([]);
   const activeSlotRef = useRef<Slot>(0);
   const slotClipIndex = useRef<[number, number]>([-1, -1]);
+  // Evita avances concurrentes (onEnded + watchdog) mientras play() está pendiente.
+  const advancingRef = useRef(false);
 
   const getSlot = (slot: Slot) => (slot === 0 ? slotARef.current : slotBRef.current);
 
-  const loadInto = useCallback((slot: Slot, index: number) => {
-    const el = slot === 0 ? slotARef.current : slotBRef.current;
-    const name = clipsRef.current[index];
-    if (!el || !name) return;
-    slotClipIndex.current[slot] = index;
-    // Solo el slot visible hace autoplay; el oculto únicamente precarga.
-    el.autoplay = slot === activeSlotRef.current;
-    el.src = clipUrl(name);
-    el.load();
-  }, []);
+  const loadInto = useCallback(
+    (slot: Slot, index: number) => {
+      const el = slot === 0 ? slotARef.current : slotBRef.current;
+      const name = clipsRef.current[index];
+      if (!el || !name) return;
+      slotClipIndex.current[slot] = index;
+      el.src = clipUrl(name);
+      el.load();
+      // Sin autoplay por atributo; se arranca explícitamente si es el activo.
+      if (slot === activeSlotRef.current) {
+        el.play().catch(() => undefined);
+      }
+    },
+    // Eliminamos activeSlot de dependencias para evitar ciclos; usamos activeSlotRef para la lógica.
+    []
+  );
 
   // Fetch de la lista de clips (reintenta si el backend aún no está arriba).
   useEffect(() => {
@@ -326,21 +336,24 @@ function GameplayLoop() {
 
     const to: Slot = from === 0 ? 1 : 0;
     const next = getSlot(to);
-    if (!next) return;
+    if (!next || advancingRef.current) return;
 
+    advancingRef.current = true;
     next.currentTime = 0;
     next
       .play()
       .then(() => {
+        advancingRef.current = false;
         // El nuevo clip ya reproduce: swap instantáneo. El anterior queda
         // congelado en su último frame detrás, así que nunca se ve negro.
         activeSlotRef.current = to;
         setActiveSlot(to);
         const upcoming = pickNextIndex(slotClipIndex.current[to], total);
-        // Espera 2 frames para que el swap se pinte antes de recargar el slot viejo.
-        requestAnimationFrame(() => requestAnimationFrame(() => loadInto(from, upcoming)));
+        // Sin rAF: usamos un timeout breve para permitir que el swap se pinte.
+        window.setTimeout(() => loadInto(from, upcoming), SWAP_RELOAD_DELAY_MS);
       })
       .catch(() => {
+        advancingRef.current = false;
         // El clip en espera falló: repetimos el actual y precargamos otro.
         if (current) {
           current.currentTime = 0;
@@ -363,6 +376,68 @@ function GameplayLoop() {
     [advance, loadInto],
   );
 
+  // Watchdog de reproducción: Chromium pausa el autoplay y congela rAF/timers
+  // cuando la ventana queda oculta; esto la reanuda sola al volver o si pausa.
+  useEffect(() => {
+    let lastTime = -1;
+    let stuckTicks = 0;
+    let warnedStuck = false;
+
+    const checkPlayback = () => {
+      const active = getSlot(activeSlotRef.current);
+      if (!active || clipsRef.current.length === 0) return;
+
+      if (active.ended) {
+        // Sin onEnded (timer limitado): forzar el avance manualmente.
+        advance();
+        return;
+      }
+      if (active.paused) {
+        active.play().catch(() => undefined);
+        return;
+      }
+      if (active.currentTime === lastTime) {
+        stuckTicks += 1;
+        if (!warnedStuck && stuckTicks >= 2) {
+          warnedStuck = true;
+          console.warn('[overlay] playback stalled while not paused; forcing play()');
+          active.play().catch(() => undefined);
+        }
+      } else {
+        lastTime = active.currentTime;
+        stuckTicks = 0;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const active = getSlot(activeSlotRef.current);
+      if (!active || clipsRef.current.length === 0) return;
+      if (active.ended) advance();
+      else if (active.paused) active.play().catch(() => undefined);
+    };
+
+    const onPause = (e: Event) => {
+      const el = e.target as HTMLVideoElement | null;
+      if (el === null || el !== getSlot(activeSlotRef.current) || el.ended || clipsRef.current.length === 0) return;
+      el.play().catch(() => undefined);
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    const elA = slotARef.current;
+    const elB = slotBRef.current;
+    elA?.addEventListener('pause', onPause);
+    elB?.addEventListener('pause', onPause);
+    const watchdog = window.setInterval(checkPlayback, PLAYBACK_WATCHDOG_MS);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      elA?.removeEventListener('pause', onPause);
+      elB?.removeEventListener('pause', onPause);
+      window.clearInterval(watchdog);
+    };
+  }, [advance]);
+
   const renderSlot = (slot: Slot, ref: RefObject<HTMLVideoElement>) => (
     <video
       ref={ref}
@@ -370,7 +445,6 @@ function GameplayLoop() {
       style={{ opacity: activeSlot === slot ? 1 : 0, zIndex: activeSlot === slot ? 1 : 0 }}
       muted
       playsInline
-      autoPlay={slot === 0}
       preload="auto"
       disablePictureInPicture
       onEnded={() => slot === activeSlotRef.current && advance()}

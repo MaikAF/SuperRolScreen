@@ -291,6 +291,51 @@ def run_build() -> None:
     log_run("Build completado.")
 
 
+def start_window(url: str) -> subprocess.Popen[str] | None:
+    """Lanza Edge en modo app con el overlay; no es crítico si falla."""
+    edge = find_edge()
+    if edge is None:
+        log_run("No se encontro Microsoft Edge; se omite la ventana (--window).")
+        return None
+
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        profile_dir = Path(localappdata) / "SuperRolScreen" / "edge-profile"
+    else:
+        profile_dir = Path.home() / ".superrolscreen" / "edge-profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    args = build_window_args(edge, url, profile_dir)
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        log_run(f"No se pudo lanzar Edge ({exc}); se omite la ventana (--window).")
+        return None
+    log_run(f"Ventana Edge abierta en {url}")
+    log_run("Transmite en Discord la ventana 'SuperRolScreen' de Edge")
+    return proc
+
+
+def wait_for_client(timeout: float = 20.0) -> bool:
+    """Espera a que Vite responda en http://127.0.0.1:5173/."""
+    url = f"http://127.0.0.1:{CLIENT_PORT}/"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as resp:
+                if resp.status < 400:
+                    return True
+        except (urllib.error.URLError, OSError, TimeoutError):
+            pass
+        time.sleep(0.5)
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # Apagado
 # --------------------------------------------------------------------------- #
@@ -331,13 +376,43 @@ def stop_process(proc: subprocess.Popen[str] | None, name: str) -> None:
             proc.wait()
 
 
+def stop_window(proc: subprocess.Popen[str] | None) -> None:
+    """Cierra la ventana de Edge.
+
+    No usa stop_process(): Edge no tiene grupo de consola propio y un
+    CTRL_BREAK a su PID podria llegar a la consola del orquestador.
+    taskkill sin /F envia WM_CLOSE (cierre normal); /F solo si no basta.
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    log_run(f"Cerrando ventana Edge (PID {proc.pid}) ...")
+    if not IS_WINDOWS:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return
+    for force in (False, True):
+        cmd = ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else [])
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+    log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
+
+
 def shutdown(
     bot: subprocess.Popen[str] | None,
     client: subprocess.Popen[str] | None,
     backend: subprocess.Popen[str] | None,
+    edge: subprocess.Popen[str] | None,
 ) -> None:
-    """Detiene en orden inverso al arranque: bot -> Vite -> backend."""
+    """Detiene en orden inverso al arranque: bot -> Edge -> Vite -> backend."""
     stop_process(bot, "bot")
+    stop_window(edge)
     stop_process(client, "client")
     stop_process(backend, "backend")
 
@@ -360,7 +435,51 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--no-bot", action="store_true", help="No lanzar el bot de Discord.")
     parser.add_argument("--no-client", action="store_true", help="No lanzar Vite (solo en dev).")
+    parser.add_argument(
+        "--window",
+        action="store_true",
+        help="Abre el overlay en una ventana dedicada de Microsoft Edge preparada para transmitir",
+    )
     return parser.parse_args(argv)
+
+
+def build_window_args(browser: str, url: str, profile_dir: Path) -> list[str]:
+    """Devuelve la lista de argumentos para lanzar Edge en modo app."""
+    return [
+        browser,
+        f"--user-data-dir={profile_dir}",
+        f"--app={url}",
+        "--window-size=1920,1080",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--autoplay-policy=no-user-gesture-required",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling",
+    ]
+
+
+def find_edge() -> str | None:
+    """Busca el ejecutable de Microsoft Edge en las rutas habituales."""
+    # 1. PATH
+    edge = shutil.which("msedge")
+    if edge:
+        return edge
+
+    # 2. Rutas conocidas en Windows
+    if IS_WINDOWS:
+        paths = [
+            Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"))
+            / "Microsoft\\Edge\\Application\\msedge.exe",
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
+            / "Microsoft\\Edge\\Application\\msedge.exe",
+        ]
+        for p in paths:
+            if p.is_file():
+                return str(p)
+
+    return None
 
 
 def _install_break_handler() -> None:
@@ -377,6 +496,14 @@ def main(argv: list[str] | None = None) -> int:
     wants_client = args.mode == "dev" and not args.no_client
     wants_bot = not args.no_bot
 
+    if args.window and args.mode == "dev" and args.no_client:
+        log_run("Error: No se puede usar --window con --no-client en modo dev.")
+        return 1
+
+    if args.window and not find_edge():
+        log_run("Error: No se encontro Microsoft Edge. Es necesario para --window.")
+        return 1
+
     preflight(need_client=(wants_client or args.mode == "obs"), need_bot=wants_bot)
 
     if args.mode == "obs":
@@ -385,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
     backend: subprocess.Popen[str] | None = None
     client: subprocess.Popen[str] | None = None
     bot: subprocess.Popen[str] | None = None
+    edge: subprocess.Popen[str] | None = None
     exit_code = 0
 
     try:
@@ -396,6 +524,19 @@ def main(argv: list[str] | None = None) -> int:
 
         if wants_bot:
             bot = start_bot()
+
+        if args.window:
+            url = f"http://localhost:{CLIENT_PORT}" if args.mode == "dev" else f"http://localhost:{BACKEND_PORT}/overlay/"
+            if args.mode == "dev":
+                # En dev, esperar a que Vite esté disponible antes de abrir Edge.
+                log_run(f"Esperando a que Vite responda en {url} ...")
+                if wait_for_client():
+                    edge = start_window(url)
+                else:
+                    log_run("Vite no respondio a tiempo. No se abrira la ventana (--window).")
+            else:
+                # En obs, el health check del backend ya garantiza disponibilidad.
+                edge = start_window(url)
 
         if args.mode == "obs":
             log_run(f"Overlay OBS: http://localhost:{BACKEND_PORT}/overlay/")
@@ -434,7 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = int(exc.code or 0)
         raise
     finally:
-        shutdown(bot, client, backend)
+        shutdown(bot, edge, client, backend)
         log_run("Todo detenido.")
 
     return exit_code

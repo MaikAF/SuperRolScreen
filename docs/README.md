@@ -57,11 +57,12 @@ Desde la raíz del repositorio (o desde cualquier carpeta, indicando la ruta del
 .\run.ps1 obs          # compila el overlay y levanta backend + bot (OBS en /overlay/)
 .\run.ps1 --no-bot     # sin bot de Discord, para pruebas con /api/events
 .\run.ps1 --no-client  # solo backend + bot (sin Vite)
+.\run.ps1 --window     # además abre el overlay en una ventana dedicada de Edge (para transmitir)
 ```
 
 El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
 
-Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
+Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot`, `npm run dev:window` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
 
 ## Iniciar en modo desarrollo (manual)
 
@@ -86,6 +87,10 @@ npm run dev
 ```
 
 Abre `http://localhost:5173` para ver el overlay. El LED del HUD muestra el estado del enlace con el backend: cian indica conectado, ámbar indica conexión en curso y rojo indica desconectado. El cliente intenta reconectarse al backend y el bot reintenta su conexión WebSocket.
+
+## Transmitir la ventana por Discord
+
+Usa `.\run.ps1 --window` (o `.\run.ps1 obs --window`) y transmite en Discord la ventana **SuperRolScreen** de Microsoft Edge que se abre. Esa ventana usa un perfil propio (`%LOCALAPPDATA%\SuperRolScreen\edge-profile`) y flags que impiden que Edge pause el video o limite los temporizadores cuando la ventana queda tapada o sin foco. Si abres el overlay en una pestaña normal de Edge, el navegador puede congelar el video de fondo mientras miras otra ventana. El overlay intenta reanudarlo solo, pero solo la ventana dedicada evita esas pausas. Ctrl+C también cierra la ventana. `--window` no es compatible con `dev --no-client`.
 
 ## Usar con OBS
 

@@ -93,7 +93,8 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 |---|---|
 | `README.md` | Guía para instalar, configurar, arrancar y utilizar el proyecto con OBS. |
 | `ANALISIS_DE_SOFTWARE.md` | Documento técnico para entender la arquitectura y orientar cambios futuros. |
-| `package.json` | Manifiesto de nivel raíz sin dependencias; scripts `dev`, `dev:nobot` y `obs` que invocan el orquestador. |
+| `package.json` | Manifiesto de nivel raíz sin dependencias; scripts `dev`, `dev:nobot`, `dev:window` y `obs` que invocan el orquestador. |
+| `scripts/test_run.py` | Tests unitarios (`unittest`) de la CLI del orquestador y de la construcción del lanzamiento de Edge. |
 | `scripts/run.py` | Orquestador (solo librería estándar): preflight, arranque ordenado con health check, logs unificados con prefijo, política de caídas y apagado del árbol de procesos. |
 | `run.ps1` | Atajo de PowerShell para `scripts/run.py` con el Python del venv; propaga el código de salida. |
 | `.vscode/tasks.json` | Tareas de VS Code que ejecutan `run.ps1` en los modos `dev`, `obs`, `--no-bot` y `--no-client`. |
@@ -189,7 +190,7 @@ El backend admite únicamente los tipos `DICE_ROLL` y `NEW_MEDIA`. Para `NEW_MED
 Todo el overlay está implementado en `client/src/App.tsx`:
 
 - **`useOverlaySocket`** administra estados `connecting`, `open` y `closed`, parsea mensajes y reintenta cada tres segundos.
-- **`GameplayLoop`** consulta `/api/clips`, reintenta si backend o clips no están disponibles y alterna dos elementos `<video>`. Mientras uno se reproduce, el otro precarga el clip siguiente para reducir pantallas negras. Con un solo clip activa el loop nativo.
+- **`GameplayLoop`** consulta `/api/clips`, reintenta si backend o clips no están disponibles y alterna dos elementos `<video>`. Mientras uno se reproduce, el otro precarga el clip siguiente para reducir pantallas negras. Con un solo clip activa el loop nativo. Los clips se arrancan con `play()` explícito (sin atributo `autoplay`) y la recarga tras el swap usa `setTimeout` (`SWAP_RELOAD_DELAY_MS`), no `requestAnimationFrame`, que se detiene cuando la página está oculta. Un vigilante (`visibilitychange`, evento `pause` del slot activo y un intervalo de `PLAYBACK_WATCHDOG_MS`) reanuda el video si el navegador lo pausa y fuerza el avance si `ended` no llegó a dispararse. `advancingRef` evita avances concurrentes.
 - **`DiceHud`** superpone texto y valores segmentados sobre `Dados Hud.png`. Distingue la tirada con cero éxitos y refleja el estado del WebSocket.
 - **`useMediaQueue`** encola eventos de medios hasta una capacidad de 10 y coordina las fases `loading`, `in` y `out`.
 - **`MediaElement`** presenta el medio como `<video>` o `<img>` y, ante un error, intenta el otro elemento una vez.
@@ -202,7 +203,7 @@ El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`
 
 Las instrucciones de preparación y ejecución están en [README.md](./README.md). En resumen, se ejecutan backend, cliente Vite y listener como procesos separados en desarrollo; para OBS se compila el cliente y se sirve el build desde FastAPI.
 
-`scripts/run.py` (vía `run.ps1`) orquesta esos procesos. En el modo `dev` lanza backend, Vite y bot; en el modo `obs` ejecuta `npm run build` y lanza backend y bot. El bot y Vite solo arrancan cuando `/api/health` responde. En Windows cada hijo se crea en su propio grupo de procesos, y el apagado envía `CTRL_BREAK` y recurre a `taskkill /T /F` si el proceso no termina en 5 s. Si el backend o Vite terminan, se detiene todo; si termina el bot, no se reinicia y el resto sigue activo. El chequeo de puertos no usa `SO_REUSEADDR`, porque en Windows esa opción permite enlazar puertos ocupados.
+`scripts/run.py` (vía `run.ps1`) orquesta esos procesos. En el modo `dev` lanza backend, Vite y bot; en el modo `obs` ejecuta `npm run build` y lanza backend y bot. El bot y Vite solo arrancan cuando `/api/health` responde. En Windows cada hijo se crea en su propio grupo de procesos, y el apagado envía `CTRL_BREAK` y recurre a `taskkill /T /F` si el proceso no termina en 5 s. Si el backend o Vite terminan, se detiene todo; si termina el bot, no se reinicia y el resto sigue activo. Con `--window`, una vez disponible el overlay (en `dev` espera a que Vite responda) abre Microsoft Edge en modo app, con perfil propio en `%LOCALAPPDATA%\SuperRolScreen\edge-profile` y flags que desactivan el throttling de ventanas ocultas u ocluidas (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`, `--disable-background-timer-throttling`, `--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling`). La ventana no es crítica y se cierra con `taskkill /T` (sin `CTRL_BREAK`, porque no tiene grupo de consola propio). El chequeo de puertos no usa `SO_REUSEADDR`, porque en Windows esa opción permite enlazar puertos ocupados.
 
 Prueba de humo desde `server/`:
 
