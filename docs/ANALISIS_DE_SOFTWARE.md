@@ -197,7 +197,7 @@ Todo el overlay está implementado en `client/src/App.tsx`:
 - **`MediaStage`** posiciona el medio y aplica una animación de entrada aleatoria. El archivo permanece visible 8 segundos y sale con una animación de 700 ms; un medio que no carga en 10 segundos se descarta.
 - **`App`** conecta el socket con el estado de tiradas y la cola de multimedia.
 
-El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas.
+El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`, y `HUD_SCREEN_NOTCH_PX`, la muesca circular que deja visible la perilla en la esquina inferior izquierda de la pantalla; calibrados en % sobre `Dados Hud.png` de 408 × 385 px, por lo que deben recalibrarse si cambia el PNG), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas.
 
 ## 8. Ejecución y validación
 

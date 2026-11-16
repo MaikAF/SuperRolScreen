@@ -23,10 +23,14 @@ const MEDIA_MAX_QUEUE = 10;
 
 /** Ancho del HUD en px (el alto lo define la proporción natural del PNG). */
 const HUD_WIDTH = 420;
-/** Zona de la pantalla negra del chasis, en % relativo a la imagen. */
-const HUD_SCREEN = { left: 19.6, top: 26.6, width: 36.8, height: 33.9 };
-/** Posición del LED "STATUS" del chasis, en %. */
-const HUD_STATUS_LED = { left: 62.5, top: 30.7 };
+/** Zona de la pantalla negra del chasis, en % relativo a la imagen. Calibrado para Dados Hud.png 408×385 */
+const HUD_SCREEN = { left: 19.4, top: 13.6, width: 36.7, height: 53.9 };
+/** Posición del LED "STATUS" del chasis, en %. Calibrado para Dados Hud.png 408×385 */
+const HUD_STATUS_LED = { left: 62.3, top: 20.1 };
+/** Muesca de la perilla: máscara radial para dejar visible la perilla.
+ * Aprox. 28 px (en el PNG) × HUD_WIDTH/408 + 1 px margen ≈ 30 px desde la esquina inferior izquierda. */
+const HUD_SCREEN_NOTCH_PX = Math.round((28 * HUD_WIDTH) / 408 + 1);
+const HUD_SCREEN_MASK = `radial-gradient(circle ${HUD_SCREEN_NOTCH_PX}px at 0 100%, transparent ${HUD_SCREEN_NOTCH_PX - 0.5}px, #000 ${HUD_SCREEN_NOTCH_PX}px)`;
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?.*)?$/i;
 const PPT_ANIMS = ['fade', 'zoom', 'fly-left', 'fly-right', 'fly-top'] as const;
@@ -495,7 +499,7 @@ function DiceHud({
 
   return (
     <aside
-      className="pointer-events-none absolute bottom-[24px] left-[40px] z-30 select-none"
+      className="pointer-events-none absolute bottom-[16px] left-[40px] z-30 select-none"
       style={{ width: HUD_WIDTH }}
       aria-label="Dice HUD"
     >
@@ -520,6 +524,8 @@ function DiceHud({
           top: `${HUD_SCREEN.top}%`,
           width: `${HUD_SCREEN.width}%`,
           height: `${HUD_SCREEN.height}%`,
+          maskImage: HUD_SCREEN_MASK,
+          WebkitMaskImage: HUD_SCREEN_MASK,
         }}
       >
         {/* key={rollId} remonta el contenido -> re-dispara el parpadeo en cada tirada */}
