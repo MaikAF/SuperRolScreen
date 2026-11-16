@@ -7,7 +7,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Reproduce en bucle los videos guardados en `media/Gameplay/`.
 - Muestra en el HUD el jugador, la reserva de dados y los éxitos de las tiradas detectadas en un canal de Discord.
 - Proyecta adjuntos y medios compartidos en otro canal de Discord, incluidos enlaces compatibles con metadatos OpenGraph. Los medios se ponen en cola y aparecen con animaciones.
-- Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal. *El HUD de voz del overlay llegará en la próxima iteración.*
+- Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). El HUD de voz (abajo a la derecha) lista a los miembros con `🔈` cuando callan y `🔊·` cuando hablan. Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal; entonces el HUD de voz muestra `STANDBY`.
 - Indica el estado de conexión con el backend mediante el LED del HUD.
 - Permite probar eventos manuales desde el propio equipo sin publicar mensajes en Discord.
 
@@ -33,7 +33,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
    `DICE_CHANNEL_ID` es obligatorio. `MEDIA_CHANNEL_ID` es opcional; si no se configura, no se procesarán medios. Activa el modo desarrollador de Discord para copiar los IDs de los canales. No compartas ni subas el token; si se expone, regénéralo en Discord.
 
 2. Coloca los videos de fondo en `media/Gameplay/`. Se admiten `.mp4`, `.webm`, `.m4v` y `.mov`; para OBS se recomienda MP4 con H.264.
-3. Comprueba que exista el marco gráfico `media/HUD/Dados Hud.png`.
+3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/Voice.jpg` (HUD de voz).
 
 El bot lee `server/.env` independientemente de la carpeta desde la que se inicie. El directorio `media/cache/` se crea automáticamente y se usa para los medios descargados desde Discord.
 
@@ -135,6 +135,7 @@ Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento 
 - **No aparece el HUD:** comprueba `media/HUD/Dados Hud.png`, el canal configurado y los permisos del bot. El parser de tiradas depende del título del embed del bot de dados.
 - **No aparece `/join` en Discord:** el bot sincroniza los comandos en cada servidor al iniciar (en la consola verás `Comandos sincronizados en guild …`). Si no aparece, revisa el scope `applications.commands` y recarga Discord con Ctrl+R.
 - **`/join` falla o el bot no detecta quién habla:** comprueba el permiso Connect y que las dependencias de voz estén instaladas (`pip install -r requirements.txt`; incluye `discord.py[voice]` y `discord-ext-voice-recv`). La detección de habla se basa en la llegada de paquetes de audio y no decodifica ni graba audio.
+- **El HUD de voz sigue en `STANDBY`:** el bot debe estar en voz (`/join`). El HUD vuelve a `STANDBY` si pasan 15 s sin recibir el latido del bot, por ejemplo si el bot se cerró. Para probarlo sin Discord, inyecta un evento: `Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/events -ContentType 'application/json' -Body '{"type":"VOICE_STATE","channel":"Mesa 1","members":[{"id":"1","name":"Ana","speaking":true}]}'`.
 - **No aparecen medios de Discord:** confirma `MEDIA_CHANNEL_ID`, permisos del bot y los registros de la terminal del listener. Los archivos grandes, HEIC y formatos no reconocidos no se muestran.
 - **La fuente de navegador no muestra nada:** genera `client/dist/`, verifica la URL `/overlay/` y confirma que backend y build correspondan a la misma versión.
 

@@ -32,7 +32,7 @@ Backend FastAPI :8000 ───── /ws: broadcast a overlays conectados
   └─ /overlay/*             build de producción, si existe
                                                         │
                                                         v
-Overlay React ──> GameplayLoop + DiceHud + MediaStage
+Overlay React ──> GameplayLoop + DiceHud + VoiceHud + MediaStage
 ```
 
 ### Tiradas de dados
@@ -63,6 +63,8 @@ El caché limita el tamaño por archivo a 60 MiB y conserva hasta 200 archivos. 
 - `SpeakingSink`: un `AudioSink` con `wants_opus=True` que no decodifica audio. Sus eventos `on_voice_member_speaking_start/stop` llegan desde el hilo `SpeakingTimer` de voice-recv, según la llegada de paquetes (stop ≈ 200 ms tras el último), y se trasladan al event loop con `call_soon_threadsafe`.
 
 voice-recv no implementa DAVE, el cifrado E2EE de voz de Discord. Por eso solo se detecta la llegada de paquetes por SSRC, sin descifrar ni decodificar el audio; se verificó que funciona con Discord real (2026-11-16). Los cambios de habla y de miembros se agrupan con un debounce de 100 ms. Mientras el bot está conectado, el estado completo se reenvía cada 5 s como latido, para que un overlay recién abierto lo reciba. `on_voice_state_update` actualiza los miembros y desconecta al bot cuando no quedan personas; al desconectarse se emite `channel: null`. Los logs INFO de voice-recv (RTCP, claves `seq` del gateway de voz) se silencian.
+
+En el overlay, `parseEvent()` revalida `VOICE_STATE`: descarta los miembros mal formados (no el evento entero) y recorta los nombres a 32 code points. `VoiceHud` muestra el canal y los miembros, y vuelve a `STANDBY` con `channel: null`, cuando pasan `VOICE_STALE_MS` (15 s, tres latidos perdidos) sin eventos o cuando el WebSocket no está abierto.
 
 ### Entrega y reproducción de eventos
 
@@ -113,7 +115,7 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `run.ps1` | Atajo de PowerShell para `scripts/run.py` con el Python del venv; propaga el código de salida. |
 | `.vscode/tasks.json` | Tareas de VS Code que ejecutan `run.ps1` en los modos `dev`, `obs`, `--no-bot` y `--no-client`. |
 | `media/Gameplay/` | Clips de fondo enumerados por el backend. Admite MP4, WebM, M4V y MOV. |
-| `media/HUD/` | Recursos del HUD; el cliente espera `Dados Hud.png`. |
+| `media/HUD/` | Recursos del HUD; el cliente espera `Dados Hud.png` (dados) y `Voice.jpg` (voz, 736 × 1439). |
 | `media/cache/` | Caché local de archivos descargados desde Discord. |
 
 ### Backend (`server/`)
@@ -222,12 +224,13 @@ Todo el overlay está implementado en `client/src/App.tsx`:
 - **`useOverlaySocket`** administra estados `connecting`, `open` y `closed`, parsea mensajes y reintenta cada tres segundos.
 - **`GameplayLoop`** consulta `/api/clips`, reintenta si backend o clips no están disponibles y alterna dos elementos `<video>`. Mientras uno se reproduce, el otro precarga el clip siguiente para reducir pantallas negras. Con un solo clip activa el loop nativo. Los clips se arrancan con `play()` explícito (sin atributo `autoplay`) y la recarga tras el swap usa `setTimeout` (`SWAP_RELOAD_DELAY_MS`), no `requestAnimationFrame`, que se detiene cuando la página está oculta. Un vigilante (`visibilitychange`, evento `pause` del slot activo y un intervalo de `PLAYBACK_WATCHDOG_MS`) reanuda el video si el navegador lo pausa y fuerza el avance si `ended` no llegó a dispararse. `advancingRef` evita avances concurrentes.
 - **`DiceHud`** superpone texto y valores segmentados sobre `Dados Hud.png`. Distingue la tirada con cero éxitos y refleja el estado del WebSocket.
+- **`VoiceHud`** superpone sobre `Voice.jpg` (abajo a la derecha, 240 px) el canal de voz y la lista de miembros con estética LED: `🔈` atenuado si el miembro calla y `🔊·` resaltado si habla, usando la variante de texto U+FE0E para que el icono tome el color LED. Muestra hasta `VOICE_MAX_ROWS` (10) filas, con quienes hablan primero, y `+N MORE` para el resto. Sin canal muestra `NO VOICE` / `STANDBY`.
 - **`useMediaQueue`** encola eventos de medios hasta una capacidad de 10 y coordina las fases `loading`, `in` y `out`.
 - **`MediaElement`** presenta el medio como `<video>` o `<img>` y, ante un error, intenta el otro elemento una vez.
 - **`MediaStage`** posiciona el medio y aplica una animación de entrada aleatoria. El archivo permanece visible 8 segundos y sale con una animación de 700 ms; un medio que no carga en 10 segundos se descarta.
 - **`App`** conecta el socket con el estado de tiradas y la cola de multimedia.
 
-El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`, y `HUD_SCREEN_NOTCH_PX`, la muesca circular que deja visible la perilla en la esquina inferior izquierda de la pantalla; calibrados en % sobre `Dados Hud.png` de 408 × 385 px, por lo que deben recalibrarse si cambia el PNG), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas.
+El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`, y `HUD_SCREEN_NOTCH_PX`, la muesca circular que deja visible la perilla en la esquina inferior izquierda de la pantalla; calibrados en % sobre `Dados Hud.png` de 408 × 385 px, por lo que deben recalibrarse si cambia el PNG), los del HUD de voz (`VOICE_HUD_WIDTH`, `VOICE_HUD_SCREEN`, calibrado en % sobre `Voice.jpg` de 736 × 1439 px), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas.
 
 ## 8. Ejecución y validación
 
@@ -257,7 +260,7 @@ La suite levanta una aplicación de fixtures HTTP en el puerto 8766 y un backend
 - La interpretación de tiradas depende de un embed externo con texto en inglés y estructura concreta.
 - Los permisos y la configuración de intents deben estar correctamente habilitados en Discord. La función de voz requiere además el scope `applications.commands` y el permiso Connect.
 - La detección de habla depende de voice-recv, una extensión no oficial que no implementa DAVE y está fijada a un commit concreto. Si Discord cambia el protocolo de voz, la detección puede dejar de funcionar aunque `/join` conecte.
-- El overlay todavía no muestra `VOICE_STATE`: el HUD de voz se implementará en la iteración 2.
+- El HUD de voz se verificó en Edge (Vite y `/overlay/`) con eventos inyectados; falta validarlo con Discord real y en OBS, incluido que los iconos salgan monocromos en el navegador de OBS.
 - La reproducción automática y transición de los clips debe verificarse en el entorno real de OBS, junto con la calibración visual de `HUD_SCREEN`.
 - Algunos formatos o enlaces remotos pueden ser incompatibles con Chromium/OBS; el resolver tiene límites explícitos y no representa un navegador completo.
 - Las fuentes del HUD dependen de CDNs externos y tienen fallbacks.

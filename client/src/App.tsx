@@ -9,6 +9,7 @@ const API_BASE = 'http://localhost:8000';
 const WS_URL = 'ws://localhost:8000/ws';
 const CLIPS_ENDPOINT = `${API_BASE}/api/clips`;
 const HUD_FRAME_URL = `${API_BASE}/media/HUD/${encodeURIComponent('Dados Hud.png')}`;
+const VOICE_FRAME_URL = `${API_BASE}/media/HUD/Voice.jpg`;
 
 const RECONNECT_DELAY_MS = 3000;
 const CLIPS_RETRY_MS = 5000;
@@ -31,6 +32,16 @@ const HUD_STATUS_LED = { left: 62.3, top: 20.1 };
  * Aprox. 28 px (en el PNG) × HUD_WIDTH/408 + 1 px margen ≈ 30 px desde la esquina inferior izquierda. */
 const HUD_SCREEN_NOTCH_PX = Math.round((28 * HUD_WIDTH) / 408 + 1);
 const HUD_SCREEN_MASK = `radial-gradient(circle ${HUD_SCREEN_NOTCH_PX}px at 0 100%, transparent ${HUD_SCREEN_NOTCH_PX - 0.5}px, #000 ${HUD_SCREEN_NOTCH_PX}px)`;
+
+/** Ancho del HUD de voz en px (el alto lo define la proporción natural del JPG). */
+const VOICE_HUD_WIDTH = 240;                 // ≈ 240 × 469 px
+/** Pantalla negra de Voice.jpg (736 × 1439), en %. Recalibrar si cambia el JPG. */
+const VOICE_HUD_SCREEN = { left: 8.97, top: 25.5, width: 81.7, height: 56.0 };
+const VOICE_STALE_MS = 15000;                // 3 latidos perdidos -> STANDBY
+const VOICE_MAX_ROWS = 10;                   // filas visibles; el resto -> "+N MORE"
+// U+FE0E = variante de texto: el símbolo toma el color LED en vez del emoji a color.
+const VOICE_ICON_SILENT = '\u{1F508}︎'; // 🔈
+const VOICE_ICON_SPEAKING = '\u{1F50A}︎·'; // 🔊·
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?.*)?$/i;
 const PPT_ANIMS = ['fade', 'zoom', 'fly-left', 'fly-right', 'fly-top'] as const;
@@ -56,7 +67,11 @@ type NewMediaEvent = {
   media_type?: MediaKind;
 };
 
-type OverlayEvent = DiceRollEvent | NewMediaEvent;
+type VoiceMember = { id: string; name: string; speaking: boolean };
+
+type VoiceStateEvent = { type: 'VOICE_STATE'; channel: string | null; members: VoiceMember[] };
+
+type OverlayEvent = DiceRollEvent | NewMediaEvent | VoiceStateEvent;
 type SocketStatus = 'connecting' | 'open' | 'closed';
 type PptAnim = (typeof PPT_ANIMS)[number];
 type MediaPhase = 'loading' | 'in' | 'out';
@@ -127,6 +142,29 @@ function parseEvent(raw: unknown): OverlayEvent | null {
       user: String(data.user ?? 'UNKNOWN'),
       media_type: mediaType,
     };
+  }
+
+  if (data.type === 'VOICE_STATE') {
+    const channel = data.channel;
+    if (channel !== null && typeof channel !== 'string') return null;
+    if (!Array.isArray(data.members)) return null;
+    const members =
+      channel === null
+        ? []
+        : (data.members as unknown[])
+            .filter(
+              (m): m is { id: unknown; name: unknown; speaking: unknown } =>
+                !!m && typeof m === 'object' && !Array.isArray(m),
+            )
+            .filter((m): m is VoiceMember => {
+              if (typeof m.id !== 'string') return false;
+              if (typeof m.name !== 'string' || m.name.length === 0) return false;
+              return typeof m.speaking === 'boolean';
+            })
+            // Recorta por code points (como el backend) para no partir un emoji.
+            .map((m) => ({ id: m.id, name: Array.from(m.name).slice(0, 32).join(''), speaking: m.speaking }))
+            .slice(0, 25);
+    return { type: 'VOICE_STATE', channel, members };
   }
 
   return null;
@@ -593,6 +631,120 @@ function DiceHud({
 }
 
 /* ============================================================================
+ * COMPONENT: HUD de voz (siempre visible, abajo a la derecha)
+ * ==========================================================================*/
+
+function VoiceHud({
+  voice,
+  status,
+}: {
+  voice: VoiceStateEvent | null;
+  status: SocketStatus;
+}) {
+  const inStandby = voice === null || voice.channel === null;
+  const members = inStandby ? [] : voice.members;
+  const speaking = members.filter((m) => m.speaking);
+  const rest = members.filter((m) => !m.speaking);
+  // Prioriza a quien habla: hablantes primero, luego el resto, en orden recibido.
+  const ordered = [...speaking, ...rest];
+  const hasMore = ordered.length > VOICE_MAX_ROWS;
+  const visible = hasMore ? ordered.slice(0, VOICE_MAX_ROWS - 1) : ordered;
+  const hiddenCount = hasMore ? ordered.length - (VOICE_MAX_ROWS - 1) : 0;
+
+  return (
+    <aside
+      className="pointer-events-none absolute bottom-[16px] right-[40px] z-30 select-none"
+      style={{ width: VOICE_HUD_WIDTH }}
+      aria-label="Voice HUD"
+    >
+      <img
+        src={VOICE_FRAME_URL}
+        alt=""
+        draggable={false}
+        className="hud-frame relative z-0 block h-auto w-full"
+      />
+
+      {/* Pantalla digital */}
+      <div
+        className="hud-screen absolute z-10 overflow-hidden"
+        style={{
+          left: `${VOICE_HUD_SCREEN.left}%`,
+          top: `${VOICE_HUD_SCREEN.top}%`,
+          width: `${VOICE_HUD_SCREEN.width}%`,
+          height: `${VOICE_HUD_SCREEN.height}%`,
+        }}
+      >
+        <div className="led font-led relative z-10 flex h-full flex-col px-[8px] py-[7px]">
+          {/* Barra superior */}
+          <div className="flex items-center justify-between text-[9px] leading-none tracking-[0.18em] opacity-80">
+            <span>VOICE.SYS</span>
+            <span>{status === 'open' ? 'LINK' : 'NO-LINK'}</span>
+          </div>
+          <div className="led-divider my-[5px]" />
+
+          {/* Canal */}
+          <span className="text-[8px] leading-none tracking-[0.25em] opacity-60">CHANNEL</span>
+          <span className="mt-[3px] truncate text-[15px] uppercase leading-tight">
+            {inStandby ? (
+              <>
+                NO VOICE<span className="cursor-blink">_</span>
+              </>
+            ) : (
+              voice.channel
+            )}
+          </span>
+
+          <div className="led-divider my-[6px]" />
+
+          {/* Miembros */}
+          <div className="flex-1 overflow-hidden">
+            {members.length === 0 ? (
+              <span className="text-[11px] leading-none opacity-60">
+                {inStandby ? '' : 'EMPTY'}
+              </span>
+            ) : (
+              visible.map((m) => (
+                <div
+                  key={m.id}
+                  className={`flex items-center truncate text-[11px] leading-tight ${m.speaking ? 'voice-speaking' : 'opacity-55'}`}
+                >
+                  <span className="voice-icon inline-block w-[1.9em]">
+                    {m.speaking ? VOICE_ICON_SPEAKING : VOICE_ICON_SILENT}
+                  </span>
+                  <span className="truncate uppercase">{m.name}</span>
+                </div>
+              ))
+            )}
+            {hasMore && (
+              <div className="truncate text-[10px] leading-tight opacity-60">
+                +{hiddenCount} MORE
+              </div>
+            )}
+          </div>
+
+          {/* Pie */}
+          <div className="led-divider mb-[4px]" />
+          <div className="text-center text-[10px] leading-none tracking-[0.18em]">
+            {inStandby ? (
+              <span className="opacity-60">STANDBY</span>
+            ) : speaking.length === 0 ? (
+              <span>{members.length} IN VOICE</span>
+            ) : (
+              <span>
+                {members.length} IN VOICE · {speaking.length} TALKING
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="hud-scanlines pointer-events-none absolute inset-0 z-20" />
+        <div className="hud-scanbar pointer-events-none absolute inset-x-0 z-20" />
+      </div>
+    </aside>
+  );
+}
+
+/* ============================================================================
  * COMPONENT: Elemento multimedia con fallback img <-> video
  * Si el primer intento falla (p. ej. un ".gif" que en realidad es MP4), se
  * reintenta una vez con el otro tipo de elemento antes de descartarlo.
@@ -699,6 +851,8 @@ function MediaStage({
 export default function App() {
   const [roll, setRoll] = useState<DiceRollEvent | null>(null);
   const [rollId, setRollId] = useState(0);
+  const [voice, setVoice] = useState<VoiceStateEvent | null>(null);
+  const [voiceAt, setVoiceAt] = useState(0);
   const { current, phase, enqueue, onReady, onFail } = useMediaQueue();
 
   const handleEvent = useCallback(
@@ -711,12 +865,24 @@ export default function App() {
         case 'NEW_MEDIA':
           enqueue(evt.url, evt.user, evt.media_type);
           break;
+        case 'VOICE_STATE':
+          setVoice(evt.channel === null ? null : evt);
+          setVoiceAt(Date.now());
+          break;
       }
     },
     [enqueue],
   );
 
+  // Caducidad: sin latidos durante VOICE_STALE_MS, vuelve a STANDBY.
+  useEffect(() => {
+    if (voiceAt === 0) return;
+    const t = window.setTimeout(() => setVoice(null), VOICE_STALE_MS);
+    return () => window.clearTimeout(t);
+  }, [voiceAt]);
+
   const status = useOverlaySocket(handleEvent);
+  const voiceForHud = status === 'open' ? voice : null;
 
   return (
     <main className="relative h-[1080px] w-[1920px] overflow-hidden">
@@ -724,6 +890,7 @@ export default function App() {
       <GameplayLoop />
       <MediaStage item={current} phase={phase} onReady={onReady} onFail={onFail} />
       <DiceHud roll={roll} rollId={rollId} status={status} />
+      <VoiceHud voice={voiceForHud} status={status} />
     </main>
   );
 }

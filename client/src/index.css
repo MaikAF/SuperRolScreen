@@ -277,3 +277,18 @@ body {
   text-transform: uppercase;
   text-shadow: 0 0 6px var(--led-glow);
 }
+
+/* --------------------------------------------------------------------------
+ * Voice HUD
+ * ------------------------------------------------------------------------ */
+.voice-icon {
+  font-family: 'Segoe UI Symbol', 'Share Tech Mono', monospace;
+  font-variant-emoji: text;
+  display: inline-block;
+  width: 1.9em;
+}
+
+.voice-speaking {
+  text-shadow: 0 0 2px var(--led), 0 0 10px var(--led), 0 0 16px var(--led-glow);
+}
+
