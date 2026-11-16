@@ -176,6 +176,32 @@ async def test_backend() -> None:
             status, _ = http_json("POST", "/api/events", {"type": "BAD"})
             check("POST /api/events inválido -> 422", status == 422)
 
+            # Vaciar lo que cada overlay aún no leyó (el NEW_MEDIA que el otro sí consumió).
+            await asyncio.wait_for(overlay_a.recv(), 3)
+            await asyncio.wait_for(overlay_b.recv(), 3)
+
+            voice_valid = {"type": "VOICE_STATE", "channel": "Mesa", "members": [{"id": "123", "name": "Ana", "speaking": True}]}
+            await bot.send(json.dumps({**voice_valid, "extra": "x"}))
+            got_a = json.loads(await asyncio.wait_for(overlay_a.recv(), 3))
+            got_b = json.loads(await asyncio.wait_for(overlay_b.recv(), 3))
+            check("VOICE_STATE válido pasa por WS (sin claves extra)", got_a == voice_valid and got_b == voice_valid, str(got_a))
+
+            voice_invalid = {"type": "VOICE_STATE", "channel": "Mesa", "members": [{"id": "123", "name": "Ana", "speaking": 1}]}
+            await bot.send(json.dumps(voice_invalid))
+            try:
+                await asyncio.wait_for(overlay_a.recv(), 0.7)
+                check("VOICE_STATE inválido rechazado en WS", False)
+            except asyncio.TimeoutError:
+                check("VOICE_STATE inválido rechazado en WS", True)
+
+            status, _ = http_json("POST", "/api/events", voice_valid)
+            got_a = json.loads(await asyncio.wait_for(overlay_a.recv(), 3))
+            got_b = json.loads(await asyncio.wait_for(overlay_b.recv(), 3))
+            check("POST VOICE_STATE válido -> overlays", status == 200 and got_a == voice_valid and got_b == voice_valid, f"{status}")
+
+            status, _ = http_json("POST", "/api/events", voice_invalid)
+            check("POST VOICE_STATE inválido -> 422", status == 422)
+
         # Range request sobre el HUD (necesario para <video> en Chromium)
         req = urllib.request.Request(
             f"http://127.0.0.1:{API_PORT}/media/HUD/Dados%20Hud.png", headers={"Range": "bytes=0-99"}

@@ -17,7 +17,8 @@ El bot y el backend se ejecutan como procesos independientes. El overlay se sirv
 ```text
 Discord
   ├─ canal de dados ──> parser de embed ──> DICE_ROLL ──┐
-  └─ canal de medios ─> extracción/resolución/cache ──> NEW_MEDIA
+  ├─ canal de medios ─> extracción/resolución/cache ──> NEW_MEDIA
+  └─ canal de voz (/join) ─> voice-recv: miembros + habla ──> VOICE_STATE
                                                         │
                                                         v
                                             WebSocket del bot
@@ -51,6 +52,18 @@ El parser está acoplado al texto y al idioma del embed de un bot externo. Si su
 
 El caché limita el tamaño por archivo a 60 MiB y conserva hasta 200 archivos. Elimina descargas parciales abandonadas de más de una hora. Los archivos HEIC, los formatos desconocidos y los archivos mayores al límite no se aceptan. El tipo MIME informado por un servidor o la extensión original no se consideran suficientes para determinar el formato.
 
+### Presencia de voz
+
+`OverlayBot` registra los slash commands `/join` y `/leave` en un `app_commands.CommandTree` y los sincroniza por servidor en `on_ready` (una vez). `/join` conecta al canal de voz del invocador con `voice_recv.VoiceRecvClient` (`self_mute=True`, `self_deaf=False`; ensordecido no recibiría paquetes). Si el bot ya estaba en otro canal del mismo servidor, se mueve; si estaba en otro servidor, se desconecta de allí. El overlay muestra un solo canal.
+
+`server/voice_presence.py` contiene la lógica pura, testeable sin token:
+
+- `build_voice_state()`: arma el evento. Excluye bots, ordena por nombre, recorta a 32 caracteres y limita a 25 miembros.
+- `has_humans()`: indica si queda alguna persona en el canal.
+- `SpeakingSink`: un `AudioSink` con `wants_opus=True` que no decodifica audio. Sus eventos `on_voice_member_speaking_start/stop` llegan desde el hilo `SpeakingTimer` de voice-recv, según la llegada de paquetes (stop ≈ 200 ms tras el último), y se trasladan al event loop con `call_soon_threadsafe`.
+
+voice-recv no implementa DAVE, el cifrado E2EE de voz de Discord. Por eso solo se detecta la llegada de paquetes por SSRC, sin descifrar ni decodificar el audio; se verificó que funciona con Discord real (2026-11-16). Los cambios de habla y de miembros se agrupan con un debounce de 100 ms. Mientras el bot está conectado, el estado completo se reenvía cada 5 s como latido, para que un overlay recién abierto lo reciba. `on_voice_state_update` actualiza los miembros y desconecta al bot cuando no quedan personas; al desconectarse se emite `channel: null`. Los logs INFO de voice-recv (RTCP, claves `seq` del gateway de voz) se silencian.
+
 ### Entrega y reproducción de eventos
 
 El listener mantiene una única conexión WebSocket saliente a `ws://localhost:8000/ws`. `OverlayLink` usa una cola de hasta 200 eventos, reintenta cada tres segundos y descarta los eventos que tengan más de 60 segundos al momento de enviarlos. El backend reenvía cada evento a todos los WebSocket conectados excepto al emisor. Los errores de envío provocan la desconexión del cliente fallido.
@@ -64,7 +77,8 @@ El cliente React valida y normaliza los mensajes recibidos, actualiza el HUD o a
 - **Python 3.12**: runtime usado para probar el proyecto.
 - **FastAPI**: API HTTP y endpoint WebSocket.
 - **Uvicorn**: servidor ASGI usado para ejecutar FastAPI.
-- **discord.py 2.x**: cliente del bot, sus eventos y modelos de mensajes/embeds.
+- **discord.py 2.x** con el extra `[voice]` (PyNaCl, davey): cliente del bot, slash commands, conexión de voz y modelos de mensajes/embeds.
+- **discord-ext-voice-recv** (fijado a un commit por URL de archivo): recepción de voz; aquí solo se usa para detectar quién habla.
 - **aiohttp**: cliente HTTP asíncrono para resolver y descargar medios.
 - **websockets**: conexión WebSocket saliente persistente del bot.
 - **python-dotenv**: carga de variables desde `server/.env`.
@@ -109,11 +123,13 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `server/main.py` | Crea la aplicación FastAPI, configura CORS, monta `/media` y opcionalmente `/overlay`, implementa HTTP, WebSocket y validación básica de eventos. |
 | `server/config.py` | Carga `server/.env`, centraliza rutas, valores de Discord, extensiones y límites del caché. |
 | `server/discord_listener.py` | Implementa `OverlayBot`, `OverlayLink`, el parser de tiradas, candidatos multimedia, reintentos y emisión de eventos. |
+| `server/voice_presence.py` | Lógica pura de presencia de voz: construcción de `VOICE_STATE`, detección de humanos y `SpeakingSink` (detección de habla sin decodificar audio). |
 | `server/media_cache.py` | Detecta tipos por magic bytes, extrae candidatos OpenGraph/Twitter y descarga, deduplica y poda el caché. |
 | `server/inspect_bot.py` | Herramienta manual que conecta a Discord e imprime datos y embeds del canal de dados. |
 | `server/requirements.txt` | Lista de dependencias Python con versiones fijadas. |
 | `server/pyproject.toml` | Archivo existente, vacío en la configuración actual. |
 | `server/tests/smoke_test.py` | Pruebas de humo del caché y del backend con servidores/fixtures locales; no inicia un bot conectado a Discord. |
+| `server/tests/test_voice_presence.py` | Tests unitarios de `voice_presence` y de la validación de `VOICE_STATE` en `main.validate_event`. |
 | `server/.env` | Configuración local no versionada que debe contener el token y los IDs de canales. |
 
 ### Cliente (`client/`)
@@ -181,7 +197,21 @@ Medio:
 }
 ```
 
-El backend admite únicamente los tipos `DICE_ROLL` y `NEW_MEDIA`. Para `NEW_MEDIA`, exige `url` de tipo string. La validación detallada de `dice_count`, `successes`, y del tipo multimedia ocurre en el cliente. `media_type` es opcional; el cliente lo infiere de la extensión cuando falta. La URL del medio puede ser relativa al backend o absoluta.
+Presencia de voz:
+
+```json
+{
+  "type": "VOICE_STATE",
+  "channel": "Mesa 1",
+  "members": [
+    { "id": "873352537313538108", "name": "Maik", "speaking": true }
+  ]
+}
+```
+
+`channel` es `null` (con `members: []`) cuando el bot no está en voz. Los `id` son strings, porque JavaScript pierde precisión con snowflakes de 64 bits. A diferencia de los otros eventos, el backend valida `VOICE_STATE` estrictamente: `channel` es un string de hasta 100 caracteres o `null`; `members` es una lista de hasta 25 elementos con `id` numérico de hasta 20 dígitos, `name` de 1 a 32 caracteres y `speaking` estrictamente `bool`. El backend reenvía un objeto reconstruido solo con las claves conocidas.
+
+El backend admite únicamente los tipos `DICE_ROLL`, `NEW_MEDIA` y `VOICE_STATE`. Para `NEW_MEDIA`, exige `url` de tipo string. La validación detallada de `dice_count`, `successes`, y del tipo multimedia ocurre en el cliente. `media_type` es opcional; el cliente lo infiere de la extensión cuando falta. La URL del medio puede ser relativa al backend o absoluta.
 
 `/api/events` y `/ws` comparten la misma función de validación del backend. La ruta HTTP restringe el emisor a localhost; el WebSocket no implementa autenticación. No se debe exponer el servicio a una red no confiable.
 
@@ -225,7 +255,9 @@ La suite levanta una aplicación de fixtures HTTP en el puerto 8766 y un backend
 ## 10. Límites y validaciones pendientes
 
 - La interpretación de tiradas depende de un embed externo con texto en inglés y estructura concreta.
-- Los permisos y la configuración de intents deben estar correctamente habilitados en Discord.
+- Los permisos y la configuración de intents deben estar correctamente habilitados en Discord. La función de voz requiere además el scope `applications.commands` y el permiso Connect.
+- La detección de habla depende de voice-recv, una extensión no oficial que no implementa DAVE y está fijada a un commit concreto. Si Discord cambia el protocolo de voz, la detección puede dejar de funcionar aunque `/join` conecte.
+- El overlay todavía no muestra `VOICE_STATE`: el HUD de voz se implementará en la iteración 2.
 - La reproducción automática y transición de los clips debe verificarse en el entorno real de OBS, junto con la calibración visual de `HUD_SCREEN`.
 - Algunos formatos o enlaces remotos pueden ser incompatibles con Chromium/OBS; el resolver tiene límites explícitos y no representa un navegador completo.
 - Las fuentes del HUD dependen de CDNs externos y tienen fallbacks.

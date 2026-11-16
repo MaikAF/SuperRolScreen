@@ -4,6 +4,9 @@
 * Canal MEDIA_CHANNEL_ID -> extrae imágenes / GIFs (adjuntos, GIFs nativos de
   Discord vía Klipy/Tenor, enlaces de Giphy, etc.), los descarga a media/cache
   con MediaCache y emite NEW_MEDIA con una URL local y el tipo real del archivo.
+* Comandos slash /join y /leave -> el bot entra/sale del canal de voz del
+  invocador y emite eventos VOICE_STATE (miembros + quién habla) al overlay
+  a través de OverlayLink.
 
 Los eventos se envían por una única conexión WebSocket persistente con
 reconexión automática (OverlayLink).
@@ -17,9 +20,11 @@ import logging
 import re
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Set
 
 import discord
+from discord import app_commands
+from discord.ext import voice_recv
 import websockets
 
 from config import (
@@ -30,9 +35,21 @@ from config import (
     MEDIA_CHANNEL_ID,
 )
 from media_cache import MediaCache
+from voice_presence import (
+    VOICE_DEBOUNCE_S,
+    VOICE_HEARTBEAT_S,
+    SpeakingSink,
+    build_voice_state,
+    has_humans,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("superrol.listener")
+# voice-recv registra en INFO cada paquete RTCP (1/s) y cada mensaje del gateway
+# de voz con claves nuevas ('seq'); y en WARNING paquetes perdidos al vaciar su
+# búfer. Es ruido para este uso (solo detectar quién habla).
+logging.getLogger("discord.ext.voice_recv").setLevel(logging.WARNING)
+logging.getLogger("discord.ext.voice_recv.opus").setLevel(logging.ERROR)
 
 WS_URL = "ws://localhost:8000/ws"
 WS_RECONNECT_S = 3
@@ -89,7 +106,9 @@ class OverlayLink:
                             log.info("Evento caducado descartado: %s", payload.get("type"))
                         else:
                             await ws.send(json.dumps(payload, ensure_ascii=False))
-                            log.info("[WS ENVIADO] %s", payload)
+                            # VOICE_STATE sale en cada cambio de habla y en el latido: solo en DEBUG.
+                            level = logging.DEBUG if payload.get("type") == "VOICE_STATE" else logging.INFO
+                            log.log(level, "[WS ENVIADO] %s", payload)
                         pending = None
             except asyncio.CancelledError:
                 raise
@@ -264,12 +283,38 @@ class OverlayBot(discord.Client):
         self.cache = MediaCache(CACHE_DIR, CACHE_URL_PREFIX)
         self.media = MediaProcessor(self.cache, self.link)
         self._dice_seen: "OrderedDict[int, None]" = OrderedDict()
+        self.tree = app_commands.CommandTree(self)
+        # Los decoradores @app_commands.command en métodos de un Client NO se
+        # registran solos (solo en Group/Cog): se añaden al árbol explícitamente.
+        self.tree.add_command(
+            app_commands.Command(
+                name="join",
+                description="El bot entra al canal de voz en el que estás",
+                callback=self._cmd_join,
+            )
+        )
+        self.tree.add_command(
+            app_commands.Command(
+                name="leave",
+                description="El bot sale del canal de voz",
+                callback=self._cmd_leave,
+            )
+        )
+
+        # --- Estado de voz ---
+        self._voice: Optional[voice_recv.VoiceRecvClient] = None
+        self._voice_guild_id: Optional[int] = None
+        self._speaking_ids: Set[int] = set()
+        self._voice_emit_handle: Optional[asyncio.TimerHandle] = None
+        self._heartbeat_task: Optional[asyncio.Task[None]] = None
+        self._synced_guilds: bool = False
 
     async def setup_hook(self) -> None:
         await self.cache.start()
         self.link.start()
 
     async def close(self) -> None:
+        await self._disconnect_voice(emit=self._voice is not None)
         await self.link.stop()
         await self.cache.close()
         await super().close()
@@ -284,6 +329,181 @@ class OverlayBot(discord.Client):
                 log.error("Canal de %s %s no visible para el bot (¿permisos / ID?)", label, cid)
             else:
                 log.info("Escuchando %s en #%s (%s)", label, getattr(channel, "name", "?"), cid)
+
+        if not self._synced_guilds:
+            self._synced_guilds = True
+            for guild in self.guilds:
+                try:
+                    self.tree.copy_global_to(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    log.info("Comandos sincronizados en guild %s (%s)", guild.id, guild.name)
+                except discord.HTTPException as exc:
+                    log.warning("No se pudieron sincronizar comandos en guild %s: %s", guild.id, exc)
+
+    # --- Voz -----------------------------------------------------------------
+
+    def _current_voice_members(self) -> list[tuple[int, str, bool]]:
+        if not self._voice or not self._voice.channel:
+            return []
+        return [(m.id, m.display_name, m.bot) for m in self._voice.channel.members]
+
+    def _emit_voice_state(self) -> None:
+        channel_name = self._voice.channel.name if (self._voice and self._voice.channel) else None
+        snapshot = build_voice_state(channel_name, self._current_voice_members(), self._speaking_ids)
+        self.link.send(snapshot)
+
+    def _schedule_voice_emit(self) -> None:
+        if self._voice_emit_handle is not None:
+            return
+        loop = asyncio.get_running_loop()
+
+        def _fire() -> None:
+            self._voice_emit_handle = None
+            self._emit_voice_state()
+
+        self._voice_emit_handle = loop.call_later(VOICE_DEBOUNCE_S, _fire)
+
+    async def _voice_heartbeat(self) -> None:
+        try:
+            while self._voice and self._voice.is_connected():
+                await asyncio.sleep(VOICE_HEARTBEAT_S)
+                if self._voice and self._voice.is_connected():
+                    self._emit_voice_state()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Error en heartbeat de voz")
+
+    async def _start_voice_heartbeat(self) -> None:
+        await self._stop_voice_heartbeat()
+        self._heartbeat_task = asyncio.create_task(self._voice_heartbeat(), name="voice-heartbeat")
+
+    async def _stop_voice_heartbeat(self) -> None:
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self._heartbeat_task = None
+
+    def _on_speaking_change(self, member_id: int, speaking: bool) -> None:
+        """Callback invocado desde el hilo del SpeakingTimer vía call_soon_threadsafe."""
+        if speaking:
+            self._speaking_ids.add(member_id)
+        else:
+            self._speaking_ids.discard(member_id)
+        self._schedule_voice_emit()
+
+    async def _connect_to_voice(self, channel: discord.abc.Connectable) -> voice_recv.VoiceRecvClient:
+        """Conecta (o mueve) al bot al canal de voz indicado."""
+        # Si ya hay conexión en otro guild, desconectar primero (un solo canal)
+        if self._voice and self._voice.is_connected() and self._voice.channel and self._voice.channel.id != channel.id:
+            if self._voice.guild and self._voice.guild.id != getattr(channel.guild, "id", None):
+                await self._disconnect_voice(emit=False)
+
+        if self._voice and self._voice.is_connected() and self._voice.channel.id == channel.id:
+            return self._voice
+
+        try:
+            if self._voice and self._voice.is_connected() and self._voice.guild == channel.guild:
+                await self._voice.move_to(channel)
+                vc = self._voice
+            else:
+                vc = await channel.connect(cls=voice_recv.VoiceRecvClient, self_deaf=False, self_mute=True)
+        except (asyncio.TimeoutError, discord.ClientException, discord.opus.OpusNotLoaded):
+            log.exception("Error conectando al canal de voz %s", channel)
+            raise
+
+        self._voice = vc
+        self._voice_guild_id = channel.guild.id if channel.guild else None
+        self._speaking_ids.clear()
+        sink = SpeakingSink(asyncio.get_running_loop(), self._on_speaking_change)
+        vc.listen(sink)
+        self._emit_voice_state()
+        await self._start_voice_heartbeat()
+        return vc
+
+    async def _disconnect_voice(self, emit: bool = True) -> None:
+        await self._stop_voice_heartbeat()
+        # Soltar la referencia ANTES de esperar: durante el await llega el
+        # on_voice_state_update del propio bot y, si _voice siguiera asignado,
+        # emitiría un segundo estado vacío.
+        vc, self._voice = self._voice, None
+        self._voice_guild_id = None
+        if vc and vc.is_connected():
+            try:
+                await vc.disconnect()
+            except Exception:
+                log.exception("Error desconectando voz")
+        self._speaking_ids.clear()
+        if self._voice_emit_handle:
+            self._voice_emit_handle.cancel()
+            self._voice_emit_handle = None
+        if emit:
+            self._emit_voice_state()
+
+    # --- Slash commands -----------------------------------------------------
+
+    async def _cmd_join(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if interaction.guild is None:
+            await interaction.followup.send("Este comando solo funciona en un servidor.", ephemeral=True)
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member) or member.voice is None or member.voice.channel is None:
+            await interaction.followup.send("Entra primero a un canal de voz.", ephemeral=True)
+            return
+        try:
+            await self._connect_to_voice(member.voice.channel)
+            await interaction.followup.send(f"Conectado a **{member.voice.channel.name}**.", ephemeral=True)
+        except Exception:  # noqa: BLE001
+            log.exception("Error al unirme al canal de voz")
+            await interaction.followup.send(
+                "No pude unirme al canal de voz. Revisa mis permisos.",
+                ephemeral=True,
+            )
+
+    async def _cmd_leave(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if self._voice and self._voice.is_connected():
+            await self._disconnect_voice(emit=True)
+            await interaction.followup.send("Desconectado del canal de voz.", ephemeral=True)
+        else:
+            await interaction.followup.send("No estaba conectado a ningún canal de voz.", ephemeral=True)
+
+    # --- Eventos ------------------------------------------------------------
+
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+        if self._voice is None or self._voice.channel is None:
+            return
+        bot_channel_id = self._voice.channel.id
+        was_in = before.channel is not None and before.channel.id == bot_channel_id
+        is_in = after.channel is not None and after.channel.id == bot_channel_id
+        if not was_in and not is_in:
+            return
+
+        # ¿El propio bot fue desconectado?
+        if self.user and member.id == self.user.id and after.channel is None:
+            self._voice = None
+            self._voice_guild_id = None
+            self._speaking_ids.clear()
+            await self._stop_voice_heartbeat()
+            if self._voice_emit_handle:
+                self._voice_emit_handle.cancel()
+                self._voice_emit_handle = None
+            self._emit_voice_state()
+            return
+
+        if not has_humans(self._current_voice_members()):
+            await self._disconnect_voice(emit=True)
+            return
+
+        # Quitar del set de speaking a quien salió
+        if was_in and not is_in:
+            self._speaking_ids.discard(member.id)
+
+        self._schedule_voice_emit()
 
     def _handle_dice(self, message: discord.Message) -> None:
         if message.id in self._dice_seen:

@@ -7,6 +7,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Reproduce en bucle los videos guardados en `media/Gameplay/`.
 - Muestra en el HUD el jugador, la reserva de dados y los éxitos de las tiradas detectadas en un canal de Discord.
 - Proyecta adjuntos y medios compartidos en otro canal de Discord, incluidos enlaces compatibles con metadatos OpenGraph. Los medios se ponen en cola y aparecen con animaciones.
+- Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal. *El HUD de voz del overlay llegará en la próxima iteración.*
 - Indica el estado de conexión con el backend mediante el LED del HUD.
 - Permite probar eventos manuales desde el propio equipo sin publicar mensajes en Discord.
 
@@ -15,6 +16,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Windows y PowerShell (los comandos de esta guía usan esas herramientas).
 - Python 3.12 y Node.js 22; son las versiones usadas para probar el proyecto.
 - Un bot de Discord con **Message Content Intent** activado en el Developer Portal y permisos para ver los canales y leer su historial.
+- Para la función de voz, el bot debe invitarse con los scopes `bot` y **`applications.commands`** y con el permiso **Connect** en los canales de voz. Si lo invitaste antes sin `applications.commands`, vuelve a invitarlo con la URL generada en *OAuth2 → URL Generator*.
 - OBS Studio con una fuente de navegador.
 - Conexión a Internet para que el bot acceda a Discord y para descargar las tipografías externas del HUD. Sin acceso a los CDN de fuentes se utilizan fuentes de reserva.
 
@@ -124,13 +126,15 @@ Desde `server/`, ejecuta:
 .\.venv\Scripts\python.exe tests\smoke_test.py
 ```
 
-Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket y las solicitudes HTTP Range. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
+Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket (incluida la validación de `VOICE_STATE`) y las solicitudes HTTP Range. La lógica de presencia de voz tiene tests unitarios propios: `.\.venv\Scripts\python.exe tests\test_voice_presence.py`. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
 
 ## Ayuda
 
 - **El LED está rojo:** confirma que Uvicorn está activo en el puerto 8000 y que el overlay se abrió en `http://localhost:5173` o en `/overlay/`.
 - **No aparece el fondo:** revisa que haya videos con extensiones admitidas en `media/Gameplay/`.
 - **No aparece el HUD:** comprueba `media/HUD/Dados Hud.png`, el canal configurado y los permisos del bot. El parser de tiradas depende del título del embed del bot de dados.
+- **No aparece `/join` en Discord:** el bot sincroniza los comandos en cada servidor al iniciar (en la consola verás `Comandos sincronizados en guild …`). Si no aparece, revisa el scope `applications.commands` y recarga Discord con Ctrl+R.
+- **`/join` falla o el bot no detecta quién habla:** comprueba el permiso Connect y que las dependencias de voz estén instaladas (`pip install -r requirements.txt`; incluye `discord.py[voice]` y `discord-ext-voice-recv`). La detección de habla se basa en la llegada de paquetes de audio y no decodifica ni graba audio.
 - **No aparecen medios de Discord:** confirma `MEDIA_CHANNEL_ID`, permisos del bot y los registros de la terminal del listener. Los archivos grandes, HEIC y formatos no reconocidos no se muestran.
 - **La fuente de navegador no muestra nada:** genera `client/dist/`, verifica la URL `/overlay/` y confirma que backend y build correspondan a la misma versión.
 

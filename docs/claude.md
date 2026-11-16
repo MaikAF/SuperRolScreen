@@ -11,6 +11,4 @@ CIERRE: actualiza README.md y ANALISIS_DE_SOFTWARE.md si cambió algo que descri
 Reparto: Copilot = código acotado, tests unitarios, smoke test. Claude = revisión del diff, correcciones, verificación integrada. Yo = prueba manual final.
 
 TAREA:
--Arreglar visualmente el hud de dados, se desconfiguro al cambiar el png, debe quedar a una altura baja (no tocando el borde) y la pantalla debe cubrir la zona negra del dispositivo mostrado en el png.
-
-
+Agregar funcionalidad: El bot de discord debe detectar los nombres de los miembros de un chat de voz y cuando hablan, esa información la muestra incluyendo en la visualización un nuevo HUD, usa el jepg de media llamado Voice para hacer display de los miembros del chat de voz y cuando es que hablan, eso se puede manejar con un simbolo al lado de cada nombre, con “🔈” para cuando no hablan y “🔊·” cuando si, esto manteniendo la misma estética led del hud de los dados. En esta iteración actualice los requirements con dependencias que ayuden a la tarea, discord.py[voice] y La extensión voice-recv.

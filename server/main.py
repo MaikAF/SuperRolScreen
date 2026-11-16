@@ -31,7 +31,42 @@ from config import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("superrol.server")
 
-ALLOWED_EVENT_TYPES = {"DICE_ROLL", "NEW_MEDIA"}
+ALLOWED_EVENT_TYPES = {"DICE_ROLL", "NEW_MEDIA", "VOICE_STATE"}
+
+# --- Validación de VOICE_STATE -------------------------------------------
+VOICE_MAX_MEMBERS = 25
+VOICE_NAME_MAX = 32
+VOICE_ID_MAX = 20
+VOICE_CHANNEL_MAX = 100
+
+
+def _validate_voice_state(payload: dict[str, Any]) -> dict[str, Any] | None:
+    channel = payload.get("channel")
+    if channel is not None and not isinstance(channel, str):
+        return None
+    if isinstance(channel, str) and (len(channel) < 1 or len(channel) > VOICE_CHANNEL_MAX):
+        return None
+
+    members = payload.get("members")
+    if not isinstance(members, list) or len(members) > VOICE_MAX_MEMBERS:
+        return None
+
+    clean_members: list[dict[str, Any]] = []
+    for m in members:
+        if not isinstance(m, dict):
+            return None
+        mid = m.get("id")
+        if not isinstance(mid, str) or not mid.isdigit() or len(mid) > VOICE_ID_MAX:
+            return None
+        name = m.get("name")
+        if not isinstance(name, str) or len(name) < 1 or len(name) > VOICE_NAME_MAX:
+            return None
+        speaking = m.get("speaking")
+        if not isinstance(speaking, bool):
+            return None
+        clean_members.append({"id": mid, "name": name, "speaking": speaking})
+
+    return {"type": "VOICE_STATE", "channel": channel, "members": clean_members}
 
 for directory in (GAMEPLAY_DIR, HUD_DIR, CACHE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -91,6 +126,8 @@ def validate_event(payload: Any) -> dict[str, Any] | None:
         return None
     if payload["type"] == "NEW_MEDIA" and not isinstance(payload.get("url"), str):
         return None
+    if payload["type"] == "VOICE_STATE":
+        return _validate_voice_state(payload)
     return payload
 
 
