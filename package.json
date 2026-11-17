@@ -4,7 +4,8 @@
     "dev": "server\\.venv\\Scripts\\python.exe scripts/run.py dev",
     "dev:window": "server\\.venv\\Scripts\\python.exe scripts/run.py dev --window",
     "dev:nobot": "server\\.venv\\Scripts\\python.exe scripts/run.py dev --no-bot",
-    "obs": "server\\.venv\\Scripts\\python.exe scripts/run.py obs"
+    "obs": "server\\.venv\\Scripts\\python.exe scripts/run.py obs",
+    "dev:tiktok": "server\\.venv\\Scripts\\python.exe scripts/run.py dev --window --tiktok"
   },
   "dependencies": {
   }

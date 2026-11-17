@@ -39,6 +39,13 @@ body,
   background: transparent;
 }
 
+html[data-layout='tiktok'],
+html[data-layout='tiktok'] body,
+html[data-layout='tiktok'] #root {
+  width: 1080px;
+  height: 1920px;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
 }

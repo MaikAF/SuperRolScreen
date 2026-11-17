@@ -9,7 +9,7 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(REPO_ROOT))
 
-from scripts.run import build_window_args, parse_args, find_edge
+from scripts.run import build_window_args, parse_args, find_edge, with_layout
 
 class TestRun(unittest.TestCase):
     def test_build_window_args(self):
@@ -35,12 +35,35 @@ class TestRun(unittest.TestCase):
             ],
         )
 
+    def test_build_window_args_tiktok(self):
+        browser = "msedge.exe"
+        url = "http://localhost:5173"
+        profile_dir = Path("C:/tmp/profile")
+        args = build_window_args(browser, url, profile_dir, size=(1080, 1920))
+        
+        self.assertIn("--window-size=1080,1920", args)
+        self.assertNotIn("--window-size=1920,1080", args)
+
+    def test_with_layout(self):
+        self.assertEqual(with_layout("http://localhost:5173", True), "http://localhost:5173?layout=tiktok")
+        self.assertEqual(
+            with_layout("http://localhost:8000/overlay/", True), "http://localhost:8000/overlay/?layout=tiktok"
+        )
+        self.assertEqual(with_layout("http://localhost:5173", False), "http://localhost:5173")
+
     def test_parse_args_window(self):
         args = parse_args(["dev", "--window"])
         self.assertTrue(args.window)
         
         args = parse_args(["dev"])
         self.assertFalse(args.window)
+
+    def test_parse_args_tiktok(self):
+        args = parse_args(["dev", "--window", "--tiktok"])
+        self.assertTrue(args.tiktok)
+        
+        args = parse_args(["dev"])
+        self.assertFalse(args.tiktok)
 
     @patch("shutil.which")
     @patch("os.environ.get")

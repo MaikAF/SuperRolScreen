@@ -291,7 +291,7 @@ def run_build() -> None:
     log_run("Build completado.")
 
 
-def start_window(url: str) -> subprocess.Popen[str] | None:
+def start_window(url: str, tiktok: bool = False) -> subprocess.Popen[str] | None:
     """Lanza Edge en modo app con el overlay; no es crítico si falla."""
     edge = find_edge()
     if edge is None:
@@ -305,7 +305,10 @@ def start_window(url: str) -> subprocess.Popen[str] | None:
         profile_dir = Path.home() / ".superrolscreen" / "edge-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    args = build_window_args(edge, url, profile_dir)
+    size = TIKTOK_WINDOW_SIZE if tiktok else LANDSCAPE_WINDOW_SIZE
+    url_to_open = with_layout(url, tiktok)
+
+    args = build_window_args(edge, url_to_open, profile_dir, size=size)
     try:
         proc = subprocess.Popen(
             args,
@@ -316,7 +319,7 @@ def start_window(url: str) -> subprocess.Popen[str] | None:
     except OSError as exc:
         log_run(f"No se pudo lanzar Edge ({exc}); se omite la ventana (--window).")
         return None
-    log_run(f"Ventana Edge abierta en {url}")
+    log_run(f"Ventana Edge abierta en {url_to_open}")
     log_run("Transmite en Discord la ventana 'SuperRolScreen' de Edge")
     return proc
 
@@ -440,16 +443,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Abre el overlay en una ventana dedicada de Microsoft Edge preparada para transmitir",
     )
+    parser.add_argument(
+        "--tiktok",
+        action="store_true",
+        help="Layout vertical 1080x1920 para TikTok Live (?layout=tiktok)",
+    )
     return parser.parse_args(argv)
 
 
-def build_window_args(browser: str, url: str, profile_dir: Path) -> list[str]:
+LANDSCAPE_WINDOW_SIZE = (1920, 1080)
+TIKTOK_WINDOW_SIZE = (1080, 1920)
+
+
+def with_layout(url: str, tiktok: bool) -> str:
+    """Añade ``?layout=tiktok`` a la URL del overlay cuando se pide el layout vertical."""
+    return f"{url}?layout=tiktok" if tiktok else url
+
+
+def build_window_args(
+    browser: str,
+    url: str,
+    profile_dir: Path,
+    size: tuple[int, int] = LANDSCAPE_WINDOW_SIZE,
+) -> list[str]:
     """Devuelve la lista de argumentos para lanzar Edge en modo app."""
+    w, h = size
     return [
         browser,
         f"--user-data-dir={profile_dir}",
         f"--app={url}",
-        "--window-size=1920,1080",
+        f"--window-size={w},{h}",
         "--no-first-run",
         "--no-default-browser-check",
         "--autoplay-policy=no-user-gesture-required",
@@ -531,17 +554,17 @@ def main(argv: list[str] | None = None) -> int:
                 # En dev, esperar a que Vite esté disponible antes de abrir Edge.
                 log_run(f"Esperando a que Vite responda en {url} ...")
                 if wait_for_client():
-                    edge = start_window(url)
+                    edge = start_window(url, tiktok=args.tiktok)
                 else:
                     log_run("Vite no respondio a tiempo. No se abrira la ventana (--window).")
             else:
                 # En obs, el health check del backend ya garantiza disponibilidad.
-                edge = start_window(url)
+                edge = start_window(url, tiktok=args.tiktok)
 
         if args.mode == "obs":
-            log_run(f"Overlay OBS: http://localhost:{BACKEND_PORT}/overlay/")
+            log_run(f"Overlay OBS: {with_layout(f'http://localhost:{BACKEND_PORT}/overlay/', args.tiktok)}")
         elif wants_client:
-            log_run(f"Overlay web: http://localhost:{CLIENT_PORT}")
+            log_run(f"Overlay web: {with_layout(f'http://localhost:{CLIENT_PORT}/', args.tiktok)}")
 
         activos = ["backend"]
         if client is not None:

@@ -10,6 +10,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). El HUD de voz (abajo a la derecha) lista a los miembros con `🔈` cuando callan y `🔊·` cuando hablan. Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal; entonces el HUD de voz muestra `STANDBY`.
 - Cuando el bot de música FlaviBot anuncia en el canal de música la canción que suena, muestra a media altura, en el borde izquierdo, un panel `NOW PLAYING:` con el título. Entra deslizándose, se queda 8 s y sale; una canción nueva reemplaza a la anterior.
 - Indica el estado de conexión con el backend mediante el LED del HUD.
+- Tiene una versión vertical de **1080 × 1920** para TikTok Live (`?layout=tiktok`): el gameplay queda centrado a ancho completo, `media/HUD/background.jpg` rellena las bandas de arriba y de abajo, y debajo del gameplay se muestran el HUD de dados (izquierda) y el de voz (derecha). Los medios de Discord aparecen sobre el gameplay y `NOW PLAYING` en la banda superior.
 - Permite probar eventos manuales desde el propio equipo sin publicar mensajes en Discord.
 
 ## Requisitos
@@ -35,7 +36,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
    `DICE_CHANNEL_ID` es obligatorio. `MEDIA_CHANNEL_ID` es opcional; si no se configura, no se procesarán medios. `MUSIC_CHANNEL_ID` también es opcional; si no se configura, no se detectan canciones. Activa el modo desarrollador de Discord para copiar los IDs de los canales. No compartas ni subas el token; si se expone, regénéralo en Discord.
 
 2. Coloca los videos de fondo en `media/Gameplay/`. Se admiten `.mp4`, `.webm`, `.m4v` y `.mov`; para OBS se recomienda MP4 con H.264.
-3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/Voice.jpg` (HUD de voz).
+3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/Voice.jpg` (HUD de voz). La versión TikTok usa también `media/HUD/background.jpg` como fondo.
 
 El bot lee `server/.env` independientemente de la carpeta desde la que se inicie. El directorio `media/cache/` se crea automáticamente y se usa para los medios descargados desde Discord.
 
@@ -62,11 +63,12 @@ Desde la raíz del repositorio (o desde cualquier carpeta, indicando la ruta del
 .\run.ps1 --no-bot     # sin bot de Discord, para pruebas con /api/events
 .\run.ps1 --no-client  # solo backend + bot (sin Vite)
 .\run.ps1 --window     # además abre el overlay en una ventana dedicada de Edge (para transmitir)
+.\run.ps1 --window --tiktok   # ventana vertical 1080x1920 con el layout de TikTok (?layout=tiktok)
 ```
 
 El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
 
-Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot`, `npm run dev:window` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
+Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot`, `npm run dev:window`, `npm run dev:tiktok` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
 
 ## Iniciar en modo desarrollo (manual)
 
@@ -106,6 +108,8 @@ npm run build
 ```
 
 Con `client/dist/` disponible, inicia el backend y el bot como se indicó arriba. En OBS agrega una **fuente de navegador** con la URL `http://localhost:8000/overlay/` y dimensiones de **1920 × 1080**. La salida tiene fondo transparente. Si no quieres reproducir audio desde el navegador, desactiva el audio de esa fuente o configúrala según tu mezcla de OBS.
+
+Para TikTok Live (TikTok Live Studio u OBS con lienzo vertical) usa `http://localhost:8000/overlay/?layout=tiktok` con dimensiones de **1080 × 1920**. Con `--tiktok`, el orquestador muestra esa URL en su log. A diferencia del layout horizontal, la versión TikTok no es transparente: incluye el fondo y el gameplay. Ten en cuenta que los comentarios y los botones de TikTok se superponen a la parte inferior, donde están los HUD.
 
 El backend de ejemplo escucha en `127.0.0.1`. Mantén ese enlace local y no expongas el puerto 8000 a redes externas.
 
