@@ -11,4 +11,6 @@ CIERRE: actualiza README.md y ANALISIS_DE_SOFTWARE.md si cambió algo que descri
 Reparto: Copilot = código acotado, tests unitarios, smoke test. Claude = revisión del diff, correcciones, verificación integrada. Yo = prueba manual final.
 
 TAREA:
-Agregar funcionalidad: Detector de canciones de bot de música, así como se muestran las imagenes o gifs del canal media, cuando en el canal de música se detecte la salida del flavibot con el nombre de la canción reproduciendo, aparece con transicion de deslizamiento desde la centroizquierda un “Now playing:” + [canción]. Manteniendo la estética similar a los otros HUD. Se ha agregado al .env MUSIC_CHANNEL_ID para lograr esta labor.
+Se debe desarrollar una versión destinada para la transmisión en 
+lives de tiktok, con el gameplay en el centro de la pantalla, debajo de este el hud de dados a la izquierda y a la derecha debe aparecer el hud de voces. El jpg llamado "background" localizado en la carpeta media debe usarse como relleno de fondo debajo y arriba del gameplay.
+
