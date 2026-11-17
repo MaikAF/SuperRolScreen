@@ -8,6 +8,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Muestra en el HUD el jugador, la reserva de dados y los éxitos de las tiradas detectadas en un canal de Discord.
 - Proyecta adjuntos y medios compartidos en otro canal de Discord, incluidos enlaces compatibles con metadatos OpenGraph. Los medios se ponen en cola y aparecen con animaciones.
 - Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). El HUD de voz (abajo a la derecha) lista a los miembros con `🔈` cuando callan y `🔊·` cuando hablan. Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal; entonces el HUD de voz muestra `STANDBY`.
+- Cuando el bot de música FlaviBot anuncia en el canal de música la canción que suena, muestra a media altura, en el borde izquierdo, un panel `NOW PLAYING:` con el título. Entra deslizándose, se queda 8 s y sale; una canción nueva reemplaza a la anterior.
 - Indica el estado de conexión con el backend mediante el LED del HUD.
 - Permite probar eventos manuales desde el propio equipo sin publicar mensajes en Discord.
 
@@ -28,9 +29,10 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
    DISCORD_TOKEN=token_del_bot
    DICE_CHANNEL_ID=123456789012345678
    MEDIA_CHANNEL_ID=123456789012345679
+   MUSIC_CHANNEL_ID=123456789012345680
    ```
 
-   `DICE_CHANNEL_ID` es obligatorio. `MEDIA_CHANNEL_ID` es opcional; si no se configura, no se procesarán medios. Activa el modo desarrollador de Discord para copiar los IDs de los canales. No compartas ni subas el token; si se expone, regénéralo en Discord.
+   `DICE_CHANNEL_ID` es obligatorio. `MEDIA_CHANNEL_ID` es opcional; si no se configura, no se procesarán medios. `MUSIC_CHANNEL_ID` también es opcional; si no se configura, no se detectan canciones. Activa el modo desarrollador de Discord para copiar los IDs de los canales. No compartas ni subas el token; si se expone, regénéralo en Discord.
 
 2. Coloca los videos de fondo en `media/Gameplay/`. Se admiten `.mp4`, `.webm`, `.m4v` y `.mov`; para OBS se recomienda MP4 con H.264.
 3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/Voice.jpg` (HUD de voz).
@@ -116,6 +118,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/events -ContentTyp
   -Body '{"type":"DICE_ROLL","user":"Tester","dice_count":6,"successes":2}'
 ```
 
+Para probar el panel de música: `-Body '{"type":"NOW_PLAYING","title":"Artista - Canción"}'`.
+
 También se pueden inyectar eventos `NEW_MEDIA` con una URL de imagen o video accesible desde el backend. La API de inyección solo acepta solicitudes desde localhost.
 
 ## Pruebas automatizadas
@@ -126,7 +130,7 @@ Desde `server/`, ejecuta:
 .\.venv\Scripts\python.exe tests\smoke_test.py
 ```
 
-Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket (incluida la validación de `VOICE_STATE`) y las solicitudes HTTP Range. La lógica de presencia de voz tiene tests unitarios propios: `.\.venv\Scripts\python.exe tests\test_voice_presence.py`. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
+Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket (incluida la validación de `VOICE_STATE`) y las solicitudes HTTP Range. La lógica de presencia de voz tiene tests unitarios propios: `.\.venv\Scripts\python.exe tests\test_voice_presence.py`. El detector de canciones también: `.\.venv\Scripts\python.exe tests\test_music_detect.py`. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
 
 ## Ayuda
 
@@ -137,6 +141,7 @@ Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento 
 - **`/join` falla o el bot no detecta quién habla:** comprueba el permiso Connect y que las dependencias de voz estén instaladas (`pip install -r requirements.txt`; incluye `discord.py[voice]` y `discord-ext-voice-recv`). La detección de habla se basa en la llegada de paquetes de audio y no decodifica ni graba audio.
 - **El HUD de voz sigue en `STANDBY`:** el bot debe estar en voz (`/join`). El HUD vuelve a `STANDBY` si pasan 15 s sin recibir el latido del bot, por ejemplo si el bot se cerró. Para probarlo sin Discord, inyecta un evento: `Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/events -ContentType 'application/json' -Body '{"type":"VOICE_STATE","channel":"Mesa 1","members":[{"id":"1","name":"Ana","speaking":true}]}'`.
 - **No aparecen medios de Discord:** confirma `MEDIA_CHANNEL_ID`, permisos del bot y los registros de la terminal del listener. Los archivos grandes, HEIC y formatos no reconocidos no se muestran.
+- **No aparece `NOW PLAYING`:** confirma `MUSIC_CHANNEL_ID` y que el bot vea el canal (al iniciar avisa si no lo ve). El detector solo atiende a bots cuyo nombre contiene "flavi" y a mensajes con "Now playing" (o "Reproduciendo ahora" y variantes). Para ver qué recibe, ejecuta desde `server/` `.\.venv\Scripts\python.exe inspect_bot.py`; en el canal de música imprime el embed y la línea `[music_detect] … now_playing=…`.
 - **La fuente de navegador no muestra nada:** genera `client/dist/`, verifica la URL `/overlay/` y confirma que backend y build correspondan a la misma versión.
 
 Para entender los módulos, el contrato de eventos y la estructura del proyecto, consulta [ANALISIS_DE_SOFTWARE.md](./ANALISIS_DE_SOFTWARE.md).

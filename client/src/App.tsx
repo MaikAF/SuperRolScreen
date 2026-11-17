@@ -22,6 +22,12 @@ const MEDIA_EXIT_MS = 700; // debe coincidir con la duración de .ppt-out en ind
 const MEDIA_LOAD_TIMEOUT_MS = 10000; // descarta medios que no cargan
 const MEDIA_MAX_QUEUE = 10;
 
+const NOW_PLAYING_DISPLAY_MS = 8000; // tiempo visible en pantalla
+const NOW_PLAYING_EXIT_MS = 600; // debe coincidir con .np-out en index.css
+const NOW_PLAYING_TITLE_MAX = 120; // igual que el backend
+// U+FE0E = variante de texto: la nota toma el color LED.
+const NOW_PLAYING_ICON = '\u{266A}︎'; // ♪
+
 /** Ancho del HUD en px (el alto lo define la proporción natural del PNG). */
 const HUD_WIDTH = 420;
 /** Zona de la pantalla negra del chasis, en % relativo a la imagen. Calibrado para Dados Hud.png 408×385 */
@@ -71,7 +77,14 @@ type VoiceMember = { id: string; name: string; speaking: boolean };
 
 type VoiceStateEvent = { type: 'VOICE_STATE'; channel: string | null; members: VoiceMember[] };
 
-type OverlayEvent = DiceRollEvent | NewMediaEvent | VoiceStateEvent;
+type NowPlayingEvent = {
+  type: 'NOW_PLAYING';
+  title: string;
+};
+
+type NowPlayingItem = { id: number; title: string };
+
+type OverlayEvent = DiceRollEvent | NewMediaEvent | VoiceStateEvent | NowPlayingEvent;
 type SocketStatus = 'connecting' | 'open' | 'closed';
 type PptAnim = (typeof PPT_ANIMS)[number];
 type MediaPhase = 'loading' | 'in' | 'out';
@@ -165,6 +178,16 @@ function parseEvent(raw: unknown): OverlayEvent | null {
             .map((m) => ({ id: m.id, name: Array.from(m.name).slice(0, 32).join(''), speaking: m.speaking }))
             .slice(0, 25);
     return { type: 'VOICE_STATE', channel, members };
+  }
+
+  if (data.type === 'NOW_PLAYING') {
+    const title = data.title;
+    if (typeof title !== 'string') return null;
+    const t = title.trim();
+    // Recorta a 120 code points (como el backend) y descarta si queda vacío.
+    const cleaned = Array.from(t).slice(0, NOW_PLAYING_TITLE_MAX).join('');
+    if (cleaned.length === 0) return null;
+    return { type: 'NOW_PLAYING', title: cleaned };
   }
 
   return null;
@@ -845,6 +868,54 @@ function MediaStage({
 }
 
 /* ============================================================================
+ * COMPONENT: Now Playing (aviso del bot de música)
+ * Entra deslizándose desde el borde izquierdo, a media altura; tras
+ * NOW_PLAYING_DISPLAY_MS sale hacia la izquierda. Una canción nueva reemplaza
+ * a la actual y reinicia la entrada (sin cola).
+ * ==========================================================================*/
+
+function NowPlayingHud({ item, onDone }: { item: NowPlayingItem | null; onDone: () => void }) {
+  // Id del aviso que está saliendo: uno nuevo nunca arranca en fase de salida.
+  const [leavingId, setLeavingId] = useState<number | null>(null);
+  const leaving = item !== null && leavingId === item.id;
+
+  useEffect(() => {
+    if (!item) return;
+    const outTimer = window.setTimeout(() => setLeavingId(item.id), NOW_PLAYING_DISPLAY_MS);
+    const doneTimer = window.setTimeout(onDone, NOW_PLAYING_DISPLAY_MS + NOW_PLAYING_EXIT_MS);
+    return () => {
+      window.clearTimeout(outTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [item, onDone]);
+
+  if (!item) return null;
+
+  return (
+    <aside
+      className="pointer-events-none absolute left-0 top-1/2 z-40 -translate-y-1/2 select-none"
+      aria-live="polite"
+      aria-label="Now playing"
+    >
+      <div key={item.id} className={`np-panel hud-screen relative ${leaving ? 'np-out' : 'np-in'}`}>
+        <div className="hud-scanlines pointer-events-none absolute inset-0" />
+        <div className="relative flex items-center gap-[16px]">
+          <span className="np-icon voice-icon">{NOW_PLAYING_ICON}</span>
+          <div className="min-w-0">
+            <div className="np-label font-led">Now playing:</div>
+            <div className="np-title font-led" title={item.title}>
+              {item.title}
+            </div>
+          </div>
+        </div>
+        <span className="media-corner media-corner--tr" />
+        <span className="media-corner media-corner--br" />
+      </div>
+    </aside>
+  );
+}
+
+/* ============================================================================
  * ROOT
  * ==========================================================================*/
 
@@ -853,7 +924,10 @@ export default function App() {
   const [rollId, setRollId] = useState(0);
   const [voice, setVoice] = useState<VoiceStateEvent | null>(null);
   const [voiceAt, setVoiceAt] = useState(0);
+  const [nowPlaying, setNowPlaying] = useState<NowPlayingItem | null>(null);
+  const nowPlayingIdRef = useRef(0);
   const { current, phase, enqueue, onReady, onFail } = useMediaQueue();
+  const clearNowPlaying = useCallback(() => setNowPlaying(null), []);
 
   const handleEvent = useCallback(
     (evt: OverlayEvent) => {
@@ -868,6 +942,9 @@ export default function App() {
         case 'VOICE_STATE':
           setVoice(evt.channel === null ? null : evt);
           setVoiceAt(Date.now());
+          break;
+        case 'NOW_PLAYING':
+          setNowPlaying({ id: ++nowPlayingIdRef.current, title: evt.title });
           break;
       }
     },
@@ -891,6 +968,7 @@ export default function App() {
       <MediaStage item={current} phase={phase} onReady={onReady} onFail={onFail} />
       <DiceHud roll={roll} rollId={rollId} status={status} />
       <VoiceHud voice={voiceForHud} status={status} />
+      <NowPlayingHud item={nowPlaying} onDone={clearNowPlaying} />
     </main>
   );
 }

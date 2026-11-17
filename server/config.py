@@ -26,6 +26,7 @@ def _int_env(name: str) -> int:
 DISCORD_TOKEN: str = (os.getenv("DISCORD_TOKEN") or "").strip().strip('"').strip("'")
 DICE_CHANNEL_ID: int = _int_env("DICE_CHANNEL_ID")
 MEDIA_CHANNEL_ID: int = _int_env("MEDIA_CHANNEL_ID")
+MUSIC_CHANNEL_ID: int = _int_env("MUSIC_CHANNEL_ID")
 
 # --- Rutas -------------------------------------------------------------------
 MEDIA_DIR = PROJECT_ROOT / "media"

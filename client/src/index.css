@@ -292,3 +292,62 @@ body {
   text-shadow: 0 0 2px var(--led), 0 0 10px var(--led), 0 0 16px var(--led-glow);
 }
 
+
+/* --------------------------------------------------------------------------
+ * Now Playing HUD (aviso del bot de música, centro-izquierda)
+ * NOW_PLAYING_EXIT_MS (App.tsx) debe coincidir con la duración de .np-out.
+ * ------------------------------------------------------------------------ */
+.np-panel {
+  min-width: 320px;
+  max-width: 640px;
+  padding: 14px 32px 14px 28px;
+  border: 1px solid rgb(77 243 255 / 0.45);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  overflow: visible;
+  box-shadow:
+    inset 0 0 18px rgb(0 0 0 / 0.9),
+    0 0 24px rgb(77 243 255 / 0.25),
+    0 18px 28px rgb(0 0 0 / 0.65);
+}
+
+.np-icon {
+  width: auto;
+  color: var(--led);
+  font-size: 40px;
+  line-height: 1;
+  text-shadow: 0 0 6px var(--led), 0 0 14px var(--led-glow);
+}
+
+.np-label {
+  color: var(--led);
+  opacity: 0.65;
+  font-size: 15px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--led-glow);
+}
+
+.np-title {
+  margin-top: 2px;
+  color: var(--led);
+  font-size: 26px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 2px var(--led), 0 0 10px var(--led-glow);
+}
+
+.np-in { animation: np-slide-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.np-out { animation: np-slide-out 0.6s ease-in forwards; }
+
+@keyframes np-slide-in {
+  from { transform: translateX(-105%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes np-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-105%); opacity: 0; }
+}

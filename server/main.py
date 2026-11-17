@@ -31,7 +31,9 @@ from config import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("superrol.server")
 
-ALLOWED_EVENT_TYPES = {"DICE_ROLL", "NEW_MEDIA", "VOICE_STATE"}
+ALLOWED_EVENT_TYPES = {"DICE_ROLL", "NEW_MEDIA", "VOICE_STATE", "NOW_PLAYING"}
+
+NOW_PLAYING_TITLE_MAX = 120  # igual que music_detect y el cliente
 
 # --- Validación de VOICE_STATE -------------------------------------------
 VOICE_MAX_MEMBERS = 25
@@ -67,6 +69,17 @@ def _validate_voice_state(payload: dict[str, Any]) -> dict[str, Any] | None:
         clean_members.append({"id": mid, "name": name, "speaking": speaking})
 
     return {"type": "VOICE_STATE", "channel": channel, "members": clean_members}
+
+
+def _validate_now_playing(payload: dict[str, Any]) -> dict[str, Any] | None:
+    title = payload.get("title")
+    if not isinstance(title, str):
+        return None
+    t = title.strip()
+    if len(t) < 1 or len(t) > NOW_PLAYING_TITLE_MAX:
+        return None
+    return {"type": "NOW_PLAYING", "title": t}
+
 
 for directory in (GAMEPLAY_DIR, HUD_DIR, CACHE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -128,6 +141,8 @@ def validate_event(payload: Any) -> dict[str, Any] | None:
         return None
     if payload["type"] == "VOICE_STATE":
         return _validate_voice_state(payload)
+    if payload["type"] == "NOW_PLAYING":
+        return _validate_now_playing(payload)
     return payload
 
 

@@ -4,6 +4,7 @@
 * Canal MEDIA_CHANNEL_ID -> extrae imágenes / GIFs (adjuntos, GIFs nativos de
   Discord vía Klipy/Tenor, enlaces de Giphy, etc.), los descarga a media/cache
   con MediaCache y emite NEW_MEDIA con una URL local y el tipo real del archivo.
+* Canal MUSIC_CHANNEL_ID -> detecta avisos Now Playing de FlaviBot y emite NOW_PLAYING.
 * Comandos slash /join y /leave -> el bot entra/sale del canal de voz del
   invocador y emite eventos VOICE_STATE (miembros + quién habla) al overlay
   a través de OverlayLink.
@@ -33,8 +34,10 @@ from config import (
     DICE_CHANNEL_ID,
     DISCORD_TOKEN,
     MEDIA_CHANNEL_ID,
+    MUSIC_CHANNEL_ID,
 )
 from media_cache import MediaCache
+from music_detect import extract_now_playing, is_music_bot
 from voice_presence import (
     VOICE_DEBOUNCE_S,
     VOICE_HEARTBEAT_S,
@@ -66,6 +69,8 @@ if not DISCORD_TOKEN or DICE_CHANNEL_ID == 0:
     raise SystemExit("Verifica DISCORD_TOKEN y DICE_CHANNEL_ID en server/.env")
 if MEDIA_CHANNEL_ID == 0:
     log.warning("MEDIA_CHANNEL_ID no configurado: no se procesarán imágenes/GIFs")
+if MUSIC_CHANNEL_ID == 0:
+    log.warning("MUSIC_CHANNEL_ID no configurado: no se detectarán canciones")
 
 
 # ----------------------------------------------------------------------------
@@ -283,6 +288,7 @@ class OverlayBot(discord.Client):
         self.cache = MediaCache(CACHE_DIR, CACHE_URL_PREFIX)
         self.media = MediaProcessor(self.cache, self.link)
         self._dice_seen: "OrderedDict[int, None]" = OrderedDict()
+        self._music_seen: "OrderedDict[tuple[int, str], None]" = OrderedDict()
         self.tree = app_commands.CommandTree(self)
         # Los decoradores @app_commands.command en métodos de un Client NO se
         # registran solos (solo en Group/Cog): se añaden al árbol explícitamente.
@@ -321,7 +327,7 @@ class OverlayBot(discord.Client):
 
     async def on_ready(self) -> None:
         log.info("=== Bot activo: %s ===", self.user)
-        for label, cid in (("dados", DICE_CHANNEL_ID), ("media", MEDIA_CHANNEL_ID)):
+        for label, cid in (("dados", DICE_CHANNEL_ID), ("media", MEDIA_CHANNEL_ID), ("música", MUSIC_CHANNEL_ID)):
             if not cid:
                 continue
             channel = self.get_channel(cid)
@@ -515,6 +521,21 @@ class OverlayBot(discord.Client):
                 self._dice_seen.popitem(last=False)
             self.link.send(parsed)
 
+    def _handle_music(self, message: discord.Message) -> None:
+        if not is_music_bot(message.author):
+            return
+        title = extract_now_playing(message.content, message.embeds, message.components)
+        if not title:
+            return
+        key = (message.id, title)
+        if key in self._music_seen:
+            return
+        self._music_seen[key] = None
+        while len(self._music_seen) > 200:
+            self._music_seen.popitem(last=False)
+        self.link.send({"type": "NOW_PLAYING", "title": title})
+        log.info("Now playing: %s", title)
+
     async def on_message(self, message: discord.Message) -> None:
         if self.user and message.author.id == self.user.id:
             return
@@ -525,11 +546,21 @@ class OverlayBot(discord.Client):
                 await self.media.handle(message)
             except Exception:
                 log.exception("Error procesando media del mensaje %s", message.id)
+        elif MUSIC_CHANNEL_ID and message.channel.id == MUSIC_CHANNEL_ID:
+            try:
+                self._handle_music(message)
+            except Exception:
+                log.exception("Error procesando música del mensaje %s", message.id)
 
     async def on_message_edit(self, _before: discord.Message, after: discord.Message) -> None:
         # Algunos bots publican el embed de la tirada editando un mensaje previo.
         if after.channel.id == DICE_CHANNEL_ID:
             self._handle_dice(after)
+        elif MUSIC_CHANNEL_ID and after.channel.id == MUSIC_CHANNEL_ID:
+            try:
+                self._handle_music(after)
+            except Exception:
+                log.exception("Error procesando música editada %s", after.id)
 
 
 if __name__ == "__main__":

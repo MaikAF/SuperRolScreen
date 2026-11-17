@@ -2,7 +2,7 @@
 
 ## 1. Propósito y alcance
 
-SuperRolScreen es una aplicación local de overlay para streams de partidas de rol. Integra tres fuentes de información en una escena 1920 × 1080: videos de fondo almacenados localmente, eventos de tiradas del bot de dados de Discord y multimedia de un canal de Discord. La primera fase prioriza la reproducción continua de la escena, una comunicación sencilla entre procesos y la descarga en caché de medios externos que pueden no ser reproducibles directamente desde OBS.
+SuperRolScreen es una aplicación local de overlay para streams de partidas de rol. Integra varias fuentes de información en una escena 1920 × 1080: videos de fondo almacenados localmente, eventos de tiradas del bot de dados de Discord, multimedia de un canal de Discord, la presencia en un canal de voz y los avisos de canción del bot de música. La primera fase prioriza la reproducción continua de la escena, una comunicación sencilla entre procesos y la descarga en caché de medios externos que pueden no ser reproducibles directamente desde OBS.
 
 El sistema se divide en:
 
@@ -18,6 +18,7 @@ El bot y el backend se ejecutan como procesos independientes. El overlay se sirv
 Discord
   ├─ canal de dados ──> parser de embed ──> DICE_ROLL ──┐
   ├─ canal de medios ─> extracción/resolución/cache ──> NEW_MEDIA
+  ├─ canal de música ─> music_detect (FlaviBot) ─────> NOW_PLAYING
   └─ canal de voz (/join) ─> voice-recv: miembros + habla ──> VOICE_STATE
                                                         │
                                                         v
@@ -32,7 +33,7 @@ Backend FastAPI :8000 ───── /ws: broadcast a overlays conectados
   └─ /overlay/*             build de producción, si existe
                                                         │
                                                         v
-Overlay React ──> GameplayLoop + DiceHud + VoiceHud + MediaStage
+Overlay React ──> GameplayLoop + DiceHud + VoiceHud + MediaStage + NowPlayingHud
 ```
 
 ### Tiradas de dados
@@ -65,6 +66,26 @@ El caché limita el tamaño por archivo a 60 MiB y conserva hasta 200 archivos. 
 voice-recv no implementa DAVE, el cifrado E2EE de voz de Discord. Por eso solo se detecta la llegada de paquetes por SSRC, sin descifrar ni decodificar el audio; se verificó que funciona con Discord real (2026-11-16). Los cambios de habla y de miembros se agrupan con un debounce de 100 ms. Mientras el bot está conectado, el estado completo se reenvía cada 5 s como latido, para que un overlay recién abierto lo reciba. `on_voice_state_update` actualiza los miembros y desconecta al bot cuando no quedan personas; al desconectarse se emite `channel: null`. Los logs INFO de voice-recv (RTCP, claves `seq` del gateway de voz) se silencian.
 
 En el overlay, `parseEvent()` revalida `VOICE_STATE`: descarta los miembros mal formados (no el evento entero) y recorta los nombres a 32 code points. `VoiceHud` muestra el canal y los miembros, y vuelve a `STANDBY` con `channel: null`, cuando pasan `VOICE_STALE_MS` (15 s, tres latidos perdidos) sin eventos o cuando el WebSocket no está abierto.
+
+### Avisos de canción (bot de música)
+
+`OverlayBot` atiende `on_message` y `on_message_edit` en `MUSIC_CHANNEL_ID`, porque los bots de música suelen editar su aviso. `server/music_detect.py` contiene la lógica pura, testeable sin token:
+
+- `is_music_bot()`: el autor debe ser bot y su `name` o `display_name` debe contener `MUSIC_BOT_NAME_HINT` (`"flavi"`).
+- `extract_now_playing()`: busca la cabecera `HEADER_RE` ("now playing", "reproduciendo ahora", "ahora suena", "está sonando", "sonando ahora") y aplica estas reglas en orden:
+  1. Título del embed `Now playing: X`.
+  2. Título o autor del embed formados solo por la cabecera; la canción sale de la descripción, del título o del primer campo.
+  3. Campo cuyo nombre contiene la cabecera.
+  4. Descripción o `content` en texto plano `Now playing: X`.
+
+  Si ningún texto tiene la cabecera, devuelve `None`, de modo que "Added to queue", "Paused", etc. se ignoran.
+- `clean_title()`: deja una línea de texto plano, sin markdown ni URLs, y la recorta a 120 caracteres con `…`.
+
+FlaviBot no usa embeds: publica un mensaje con **componentes V2** (flag `components_v2`). Es un `Container` con un `TextDisplay` `### [Now playing](https://flavibot.xyz/music-player)` y, dentro de un `SectionComponent`, otro `TextDisplay` con `**[Artista - Canción](url de Spotify)**`; además lleva botones y una imagen de progreso. `component_texts()` recorre los `children` de los componentes y junta sus textos; `_from_texts()` pasa cada línea a texto plano (enlaces convertidos en su texto, sin URLs ni encabezados `#`) y, si una línea es solo la cabecera, toma como canción la siguiente línea con texto. `clean_title()` elimina además las menciones `<@id>` y `<#id>`.
+
+El evento se deduplica por `(id de mensaje, título)`, de modo que una edición que no cambia la canción no lo repite. La estructura de FlaviBot se tomó de un volcado real de `inspect_bot.py` (2026-11-16), que muestra el árbol de componentes y el JSON crudo del gateway.
+
+En el overlay, `NowPlayingHud` muestra el panel a media altura, pegado al borde izquierdo: entra con `.np-in` (0,7 s), permanece `NOW_PLAYING_DISPLAY_MS` (8 s) y sale con `.np-out` (`NOW_PLAYING_EXIT_MS`, 600 ms). Un aviso nuevo reemplaza al actual y reinicia la entrada; no hay cola.
 
 ### Entrega y reproducción de eventos
 
@@ -125,12 +146,14 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `server/main.py` | Crea la aplicación FastAPI, configura CORS, monta `/media` y opcionalmente `/overlay`, implementa HTTP, WebSocket y validación básica de eventos. |
 | `server/config.py` | Carga `server/.env`, centraliza rutas, valores de Discord, extensiones y límites del caché. |
 | `server/discord_listener.py` | Implementa `OverlayBot`, `OverlayLink`, el parser de tiradas, candidatos multimedia, reintentos y emisión de eventos. |
+| `server/music_detect.py` | Lógica pura de detección de avisos "now playing" del bot de música: `is_music_bot`, `extract_now_playing` y `clean_title`. |
 | `server/voice_presence.py` | Lógica pura de presencia de voz: construcción de `VOICE_STATE`, detección de humanos y `SpeakingSink` (detección de habla sin decodificar audio). |
 | `server/media_cache.py` | Detecta tipos por magic bytes, extrae candidatos OpenGraph/Twitter y descarga, deduplica y poda el caché. |
-| `server/inspect_bot.py` | Herramienta manual que conecta a Discord e imprime datos y embeds del canal de dados. |
+| `server/inspect_bot.py` | Herramienta manual que conecta a Discord e imprime datos y embeds de los canales de dados, medios y música (incluidas las ediciones en música, con el resultado de `music_detect`). |
 | `server/requirements.txt` | Lista de dependencias Python con versiones fijadas. |
 | `server/pyproject.toml` | Archivo existente, vacío en la configuración actual. |
 | `server/tests/smoke_test.py` | Pruebas de humo del caché y del backend con servidores/fixtures locales; no inicia un bot conectado a Discord. |
+| `server/tests/test_music_detect.py` | Tests unitarios de `music_detect` y de la validación de `NOW_PLAYING` en `main.validate_event`. |
 | `server/tests/test_voice_presence.py` | Tests unitarios de `voice_presence` y de la validación de `VOICE_STATE` en `main.validate_event`. |
 | `server/.env` | Configuración local no versionada que debe contener el token y los IDs de canales. |
 
@@ -159,6 +182,7 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `DISCORD_TOKEN` | Sí para iniciar el bot | Token de autenticación del bot. |
 | `DICE_CHANNEL_ID` | Sí para iniciar el listener | Canal que contiene las tiradas. El listener finaliza si falta o no es un entero distinto de cero. |
 | `MEDIA_CHANNEL_ID` | No | Canal de medios. Si es cero o falta, se registra una advertencia y no se procesan medios. |
+| `MUSIC_CHANNEL_ID` | No | Canal donde publica el bot de música. Si es cero o falta, se registra una advertencia y no se detectan canciones. |
 
 Límites definidos en `server/config.py`: 60 MiB por descarga, 200 archivos de caché, 25 segundos por descarga y las extensiones admitidas para clips de fondo.
 
@@ -211,9 +235,17 @@ Presencia de voz:
 }
 ```
 
+Canción en reproducción:
+
+```json
+{ "type": "NOW_PLAYING", "title": "Artista - Canción" }
+```
+
+El backend exige que `title` sea un string con 1 a 120 caracteres tras aplicar `strip()` y reenvía un objeto reconstruido solo con `type` y `title`. El cliente vuelve a validarlo y lo recorta a 120 code points.
+
 `channel` es `null` (con `members: []`) cuando el bot no está en voz. Los `id` son strings, porque JavaScript pierde precisión con snowflakes de 64 bits. A diferencia de los otros eventos, el backend valida `VOICE_STATE` estrictamente: `channel` es un string de hasta 100 caracteres o `null`; `members` es una lista de hasta 25 elementos con `id` numérico de hasta 20 dígitos, `name` de 1 a 32 caracteres y `speaking` estrictamente `bool`. El backend reenvía un objeto reconstruido solo con las claves conocidas.
 
-El backend admite únicamente los tipos `DICE_ROLL`, `NEW_MEDIA` y `VOICE_STATE`. Para `NEW_MEDIA`, exige `url` de tipo string. La validación detallada de `dice_count`, `successes`, y del tipo multimedia ocurre en el cliente. `media_type` es opcional; el cliente lo infiere de la extensión cuando falta. La URL del medio puede ser relativa al backend o absoluta.
+El backend admite únicamente los tipos `DICE_ROLL`, `NEW_MEDIA`, `VOICE_STATE` y `NOW_PLAYING`. Para `NEW_MEDIA`, exige `url` de tipo string. La validación detallada de `dice_count`, `successes`, y del tipo multimedia ocurre en el cliente. `media_type` es opcional; el cliente lo infiere de la extensión cuando falta. La URL del medio puede ser relativa al backend o absoluta.
 
 `/api/events` y `/ws` comparten la misma función de validación del backend. La ruta HTTP restringe el emisor a localhost; el WebSocket no implementa autenticación. No se debe exponer el servicio a una red no confiable.
 
@@ -225,12 +257,13 @@ Todo el overlay está implementado en `client/src/App.tsx`:
 - **`GameplayLoop`** consulta `/api/clips`, reintenta si backend o clips no están disponibles y alterna dos elementos `<video>`. Mientras uno se reproduce, el otro precarga el clip siguiente para reducir pantallas negras. Con un solo clip activa el loop nativo. Los clips se arrancan con `play()` explícito (sin atributo `autoplay`) y la recarga tras el swap usa `setTimeout` (`SWAP_RELOAD_DELAY_MS`), no `requestAnimationFrame`, que se detiene cuando la página está oculta. Un vigilante (`visibilitychange`, evento `pause` del slot activo y un intervalo de `PLAYBACK_WATCHDOG_MS`) reanuda el video si el navegador lo pausa y fuerza el avance si `ended` no llegó a dispararse. `advancingRef` evita avances concurrentes.
 - **`DiceHud`** superpone texto y valores segmentados sobre `Dados Hud.png`. Distingue la tirada con cero éxitos y refleja el estado del WebSocket.
 - **`VoiceHud`** superpone sobre `Voice.jpg` (abajo a la derecha, 240 px) el canal de voz y la lista de miembros con estética LED: `🔈` atenuado si el miembro calla y `🔊·` resaltado si habla, usando la variante de texto U+FE0E para que el icono tome el color LED. Muestra hasta `VOICE_MAX_ROWS` (10) filas, con quienes hablan primero, y `+N MORE` para el resto. Sin canal muestra `NO VOICE` / `STANDBY`.
+- **`NowPlayingHud`** muestra el panel `NOW PLAYING:` + título (estética LED/CRT, `.np-panel` con `hud-screen` y `hud-scanlines`, sin imagen de chasis) a media altura, en el borde izquierdo, durante 8 s. La fase de salida va ligada al id del aviso, para que uno nuevo no arranque saliendo.
 - **`useMediaQueue`** encola eventos de medios hasta una capacidad de 10 y coordina las fases `loading`, `in` y `out`.
 - **`MediaElement`** presenta el medio como `<video>` o `<img>` y, ante un error, intenta el otro elemento una vez.
 - **`MediaStage`** posiciona el medio y aplica una animación de entrada aleatoria. El archivo permanece visible 8 segundos y sale con una animación de 700 ms; un medio que no carga en 10 segundos se descarta.
 - **`App`** conecta el socket con el estado de tiradas y la cola de multimedia.
 
-El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`, y `HUD_SCREEN_NOTCH_PX`, la muesca circular que deja visible la perilla en la esquina inferior izquierda de la pantalla; calibrados en % sobre `Dados Hud.png` de 408 × 385 px, por lo que deben recalibrarse si cambia el PNG), los del HUD de voz (`VOICE_HUD_WIDTH`, `VOICE_HUD_SCREEN`, calibrado en % sobre `Voice.jpg` de 736 × 1439 px), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas.
+El tamaño y las posiciones del HUD (`HUD_WIDTH`, `HUD_SCREEN`, `HUD_STATUS_LED`, y `HUD_SCREEN_NOTCH_PX`, la muesca circular que deja visible la perilla en la esquina inferior izquierda de la pantalla; calibrados en % sobre `Dados Hud.png` de 408 × 385 px, por lo que deben recalibrarse si cambia el PNG), los del HUD de voz (`VOICE_HUD_WIDTH`, `VOICE_HUD_SCREEN`, calibrado en % sobre `Voice.jpg` de 736 × 1439 px), los tiempos de reproducción y otras constantes de escena se configuran al inicio de `App.tsx`. Las animaciones asociadas están en `index.css`; `MEDIA_EXIT_MS` y la duración de `.ppt-out` deben permanecer sincronizadas, igual que `NOW_PLAYING_EXIT_MS` y la de `.np-out`.
 
 ## 8. Ejecución y validación
 
@@ -258,6 +291,7 @@ La suite levanta una aplicación de fixtures HTTP en el puerto 8766 y un backend
 ## 10. Límites y validaciones pendientes
 
 - La interpretación de tiradas depende de un embed externo con texto en inglés y estructura concreta.
+- La detección de canciones depende del nombre del bot (`"flavi"`) y del texto de su embed; el parser se ajustó con un volcado real de FlaviBot (componentes V2); falta ver el panel con el bot real y en OBS.
 - Los permisos y la configuración de intents deben estar correctamente habilitados en Discord. La función de voz requiere además el scope `applications.commands` y el permiso Connect.
 - La detección de habla depende de voice-recv, una extensión no oficial que no implementa DAVE y está fijada a un commit concreto. Si Discord cambia el protocolo de voz, la detección puede dejar de funcionar aunque `/join` conecte.
 - El HUD de voz se verificó en Edge (Vite y `/overlay/`) con eventos inyectados; falta validarlo con Discord real y en OBS, incluido que los iconos salgan monocromos en el navegador de OBS.
