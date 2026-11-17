@@ -36,7 +36,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
    `DICE_CHANNEL_ID` es obligatorio. `MEDIA_CHANNEL_ID` es opcional; si no se configura, no se procesarán medios. `MUSIC_CHANNEL_ID` también es opcional; si no se configura, no se detectan canciones. Activa el modo desarrollador de Discord para copiar los IDs de los canales. No compartas ni subas el token; si se expone, regénéralo en Discord.
 
 2. Coloca los videos de fondo en `media/Gameplay/`. Se admiten `.mp4`, `.webm`, `.m4v` y `.mov`; para OBS se recomienda MP4 con H.264.
-3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/Voice.jpg` (HUD de voz). La versión TikTok usa también `media/HUD/background.jpg` como fondo.
+3. Comprueba que existan los marcos gráficos `media/HUD/Dados Hud.png` (HUD de dados) y `media/HUD/voice.png` (HUD de voz). La versión TikTok usa también `media/HUD/background.jpg` como fondo.
 
 El bot lee `server/.env` independientemente de la carpeta desde la que se inicie. El directorio `media/cache/` se crea automáticamente y se usa para los medios descargados desde Discord.
 

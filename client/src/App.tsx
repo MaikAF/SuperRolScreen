@@ -9,7 +9,7 @@ const API_BASE = 'http://localhost:8000';
 const WS_URL = 'ws://localhost:8000/ws';
 const CLIPS_ENDPOINT = `${API_BASE}/api/clips`;
 const HUD_FRAME_URL = `${API_BASE}/media/HUD/${encodeURIComponent('Dados Hud.png')}`;
-const VOICE_FRAME_URL = `${API_BASE}/media/HUD/Voice.jpg`;
+const VOICE_FRAME_URL = `${API_BASE}/media/HUD/voice.png`;
 
 const RECONNECT_DELAY_MS = 3000;
 const CLIPS_RETRY_MS = 5000;
@@ -39,10 +39,11 @@ const HUD_STATUS_LED = { left: 62.3, top: 20.1 };
 const HUD_SCREEN_NOTCH_PX = Math.round((28 * HUD_WIDTH) / 408 + 1);
 const HUD_SCREEN_MASK = `radial-gradient(circle ${HUD_SCREEN_NOTCH_PX}px at 0 100%, transparent ${HUD_SCREEN_NOTCH_PX - 0.5}px, #000 ${HUD_SCREEN_NOTCH_PX}px)`;
 
-/** Ancho del HUD de voz en px (el alto lo define la proporción natural del JPG). */
+/** Ancho del HUD de voz en px (el alto lo define la proporción natural del PNG). */
 const VOICE_HUD_WIDTH = 240;                 // ≈ 240 × 469 px
-/** Pantalla negra de Voice.jpg (736 × 1439), en %. Recalibrar si cambia el JPG. */
-const VOICE_HUD_SCREEN = { left: 8.97, top: 25.5, width: 81.7, height: 56.0 };
+/** Pantalla negra de voice.png (276 × 539), en %. Recalibrar si cambia el PNG. */
+const VOICE_HUD_SCREEN = { left: 9.06, top: 25.6, width: 81.16, height: 55.66 };
+const VOICE_HUD_SCREEN_RADIUS_PX = 8;        // redondeo de la pantalla en voice.png a 240 px
 const VOICE_STALE_MS = 15000;                // 3 latidos perdidos -> STANDBY
 const VOICE_MAX_ROWS = 10;                   // filas visibles; el resto -> "+N MORE"
 // U+FE0E = variante de texto: el símbolo toma el color LED en vez del emoji a color.
@@ -67,9 +68,9 @@ const TIKTOK_DICE_SCALE = 1.15; // ≈ 483 × 455 px
 const TIKTOK_VOICE_SCALE = 1.3; // ≈ 312 × 610 px
 const TIKTOK_MEDIA_SCALE = 0.8; // medio + pie caben en los 608 px del gameplay
 const BACKGROUND_URL = `${API_BASE}/media/HUD/background.jpg`;
-// Proporción alto/ancho de los marcos (Dados Hud.png 408x385, Voice.jpg 736x1439).
+// Proporción alto/ancho de los marcos (Dados Hud.png 408x385, voice.png 276x539).
 const DICE_FRAME_RATIO = 385 / 408;
-const VOICE_FRAME_RATIO = 1439 / 736;
+const VOICE_FRAME_RATIO = 539 / 276;
 
 type Layout = 'landscape' | 'tiktok';
 
@@ -732,6 +733,7 @@ function VoiceHud({
           top: `${VOICE_HUD_SCREEN.top}%`,
           width: `${VOICE_HUD_SCREEN.width}%`,
           height: `${VOICE_HUD_SCREEN.height}%`,
+          borderRadius: VOICE_HUD_SCREEN_RADIUS_PX,
         }}
       >
         <div className="led font-led relative z-10 flex h-full flex-col px-[8px] py-[7px]">

@@ -11,5 +11,5 @@ CIERRE: actualiza README.md y ANALISIS_DE_SOFTWARE.md si cambió algo que descri
 Reparto: Copilot = código acotado, tests unitarios, smoke test. Claude = revisión del diff, correcciones, verificación integrada. Yo = prueba manual final.
 
 TAREA:
-Se debe desarrollar una versión destinada para la transmisión en lives de tiktok, con el gameplay en el centro de la pantalla, debajo de este el hud de dados a la izquierda y a la derecha debe aparecer el hud de voces. El jpg llamado "background" localizado en la carpeta media debe usarse como relleno de fondo debajo y arriba del gameplay.
+Se ha cambiado el archivo voice.png, realiza los ajustes para que no tenga problemas visuales con el contenido HUD.
 
