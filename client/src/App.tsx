@@ -54,34 +54,52 @@ const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?.*)?$/i;
 const PPT_ANIMS = ['fade', 'zoom', 'fly-left', 'fly-right', 'fly-top'] as const;
 
 /* ============================================================================
- * TIKTOK LAYOUT CONSTANTS
+ * LAYOUTS GAMEPLAY / HUD CONSTANTS
  * ==========================================================================*/
 
-// Lienzo vertical 1080x1920: banda superior | gameplay 16:9 | banda inferior.
-const TIKTOK_W = 1080;
-const TIKTOK_H = 1920;
-const TIKTOK_GAMEPLAY_H = 608; // 1080 * 9/16
-const TIKTOK_BAND_H = (TIKTOK_H - TIKTOK_GAMEPLAY_H) / 2; // 656
-const TIKTOK_LOWER_TOP = TIKTOK_BAND_H + TIKTOK_GAMEPLAY_H; // 1264
-const TIKTOK_SIDE_MARGIN = 24;
-const TIKTOK_DICE_SCALE = 1.15; // ≈ 483 × 455 px
-const TIKTOK_VOICE_SCALE = 1.3; // ≈ 312 × 610 px
-const TIKTOK_MEDIA_SCALE = 0.8; // medio + pie caben en los 608 px del gameplay
+// Lienzo del HUD (banda superior de TikTok Live): 1080 x 656.
+const HUD_W = 1080;
+const HUD_H = 656;
+const HUD_SIDE_MARGIN = 24;
+const HUD_DICE_SCALE = 1.15; // ≈ 483 × 455 px
+const HUD_VOICE_SCALE = 1.3; // ≈ 312 × 610 px
 const BACKGROUND_URL = `${API_BASE}/media/HUD/background.jpg`;
 // Proporción alto/ancho de los marcos (Dados Hud.png 408x385, voice.png 276x539).
 const DICE_FRAME_RATIO = 385 / 408;
 const VOICE_FRAME_RATIO = 539 / 276;
 
-type Layout = 'landscape' | 'tiktok';
+type Layout = 'landscape' | 'gameplay' | 'hud';
 
-/** Solo el valor exacto `?layout=tiktok` activa el layout vertical. */
+/** Solo los literales `?layout=gameplay` y `?layout=hud` activan las ventanas de TikTok.
+ * Cualquier otro valor (incluido `tiktok`) da `landscape`. */
 function readLayout(): Layout {
-  return new URLSearchParams(window.location.search).get('layout') === 'tiktok' ? 'tiktok' : 'landscape';
+  const layout = new URLSearchParams(window.location.search).get('layout');
+  if (layout === 'gameplay') return 'gameplay';
+  if (layout === 'hud') return 'hud';
+  return 'landscape';
 }
 
 const LAYOUT: Layout = readLayout();
 // Antes del primer render, para que index.css dimensione html/body/#root.
 document.documentElement.dataset.layout = LAYOUT;
+// Título de ventana para distinguir en captura de ventana del estudio
+if (LAYOUT === 'gameplay') {
+  document.title = 'SuperRolScreen · Gameplay';
+} else if (LAYOUT === 'hud') {
+  document.title = 'SuperRolScreen · HUD';
+}
+
+/** Hook: escala para ajustar lienzo al viewport (sin recortar). */
+function useFitScale(w: number, h: number): number {
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const update = () => setScale(Math.min(window.innerWidth / w, window.innerHeight / h));
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [w, h]);
+  return scale;
+}
 
 /** Posición de un HUD: clases de Tailwind + estilo inline opcional. */
 type Placement = { className: string; style?: CSSProperties };
@@ -873,14 +891,12 @@ function MediaStage({
   onReady,
   onFail,
   placement = { className: 'right-[120px] top-[110px] h-[640px] w-[900px]' },
-  scale = 1,
 }: {
   item: MediaItem | null;
   phase: MediaPhase;
   onReady: () => void;
   onFail: () => void;
   placement?: Placement;
-  scale?: number;
 }) {
   if (!item) return null;
 
@@ -894,8 +910,6 @@ function MediaStage({
       style={{ perspective: '1200px', ...placement.style }}
       aria-live="polite"
     >
-      {/* El escalado va en un envoltorio: las animaciones ppt-* usan transform en la figure. */}
-      <div style={scale === 1 ? undefined : { transform: `scale(${scale})` }}>
       <figure key={item.id} className={`m-0 flex flex-col items-center ${animClass}`}>
         <div className="media-frame relative">
           <MediaElement item={item} onReady={onReady} onFail={onFail} />
@@ -908,7 +922,6 @@ function MediaStage({
           <span className="opacity-60">SENT BY ▸</span> {item.user}
         </figcaption>
       </figure>
-      </div>
     </section>
   );
 }
@@ -923,12 +936,9 @@ function MediaStage({
 function NowPlayingHud({
   item,
   onDone,
-  top,
 }: {
   item: NowPlayingItem | null;
   onDone: () => void;
-  /** Centro vertical del panel en px; por defecto, media altura del lienzo. */
-  top?: number;
 }) {
   // Id del aviso que está saliendo: uno nuevo nunca arranca en fase de salida.
   const [leavingId, setLeavingId] = useState<number | null>(null);
@@ -949,7 +959,6 @@ function NowPlayingHud({
   return (
     <aside
       className="pointer-events-none absolute left-0 top-1/2 z-40 -translate-y-1/2 select-none"
-      style={top === undefined ? undefined : { top }}
       aria-live="polite"
       aria-label="Now playing"
     >
@@ -1016,26 +1025,34 @@ export default function App() {
 
   const status = useOverlaySocket(handleEvent);
   const voiceForHud = status === 'open' ? voice : null;
+  // Hook incondicional (reglas de hooks); el layout horizontal no usa la escala.
+  const isHud = LAYOUT === 'hud';
+  const fitScale = useFitScale(isHud ? HUD_W : GAMEPLAY_W, isHud ? HUD_H : GAMEPLAY_H);
+  const fitStyle = (w: number, h: number): CSSProperties => ({
+    width: w,
+    height: h,
+    transform: `scale(${fitScale})`,
+    transformOrigin: 'top left',
+  });
 
-  if (LAYOUT === 'tiktok') {
+  if (LAYOUT === 'gameplay') {
     return (
-      <main className="relative overflow-hidden" style={{ width: TIKTOK_W, height: TIKTOK_H }}>
-        <h1 className="sr-only">SuperRolScreen — Overlay de partida de rol (TikTok)</h1>
-        <TiktokBackdrop />
-        <div className="absolute left-0 z-0" style={TIKTOK_GAMEPLAY_BOX}>
-          <GameplayLoop />
-        </div>
-        <MediaStage
-          item={current}
-          phase={phase}
-          onReady={onReady}
-          onFail={onFail}
-          placement={{ className: 'left-0', style: TIKTOK_GAMEPLAY_BOX }}
-          scale={TIKTOK_MEDIA_SCALE}
-        />
-        <DiceHud roll={roll} rollId={rollId} status={status} placement={TIKTOK_DICE_PLACEMENT} />
-        <VoiceHud voice={voiceForHud} status={status} placement={TIKTOK_VOICE_PLACEMENT} />
-        <NowPlayingHud item={nowPlaying} onDone={clearNowPlaying} top={TIKTOK_BAND_H / 2} />
+      <main className="relative overflow-hidden bg-black" style={fitStyle(GAMEPLAY_W, GAMEPLAY_H)}>
+        <h1 className="sr-only">SuperRolScreen — Overlay de partida de rol (Gameplay)</h1>
+        <GameplayLoop />
+        <MediaStage item={current} phase={phase} onReady={onReady} onFail={onFail} />
+        <NowPlayingHud item={nowPlaying} onDone={clearNowPlaying} />
+      </main>
+    );
+  }
+
+  if (isHud) {
+    return (
+      <main className="relative overflow-hidden bg-black" style={fitStyle(HUD_W, HUD_H)}>
+        <h1 className="sr-only">SuperRolScreen — Overlay de partida de rol (HUD)</h1>
+        <div className="absolute inset-0 z-0" style={HUD_BACKGROUND_STYLE} aria-hidden="true" />
+        <DiceHud roll={roll} rollId={rollId} status={status} placement={HUD_DICE_PLACEMENT} />
+        <VoiceHud voice={voiceForHud} status={status} placement={HUD_VOICE_PLACEMENT} />
       </main>
     );
   }
@@ -1053,50 +1070,39 @@ export default function App() {
 }
 
 /* ============================================================================
- * LAYOUT TIKTOK (1080x1920)
- * Una copia de background.jpg por banda (cover): apenas se escala (~1,04x).
- * Los HUD se agrandan con scale() para no descalibrar sus textos en px.
+ * LAYOUTS GAMEPLAY / HUD
  * ==========================================================================*/
 
-const TIKTOK_GAMEPLAY_BOX: CSSProperties = { top: TIKTOK_BAND_H, width: TIKTOK_W, height: TIKTOK_GAMEPLAY_H };
+const GAMEPLAY_W = 1920;
+const GAMEPLAY_H = 1080;
 
-/** Centra verticalmente en la banda inferior un HUD de ancho `width` escalado por `scale`. */
-function lowerBandTop(width: number, ratio: number, scale: number): number {
-  return TIKTOK_LOWER_TOP + (TIKTOK_BAND_H - width * ratio * scale) / 2;
-}
-
-const TIKTOK_DICE_PLACEMENT: Placement = {
-  className: '',
-  style: {
-    left: TIKTOK_SIDE_MARGIN,
-    top: lowerBandTop(HUD_WIDTH, DICE_FRAME_RATIO, TIKTOK_DICE_SCALE),
-    transform: `scale(${TIKTOK_DICE_SCALE})`,
-    transformOrigin: 'top left',
-  },
-};
-
-const TIKTOK_VOICE_PLACEMENT: Placement = {
-  className: '',
-  style: {
-    right: TIKTOK_SIDE_MARGIN,
-    top: lowerBandTop(VOICE_HUD_WIDTH, VOICE_FRAME_RATIO, TIKTOK_VOICE_SCALE),
-    transform: `scale(${TIKTOK_VOICE_SCALE})`,
-    transformOrigin: 'top right',
-  },
-};
-
-const BAND_STYLE: CSSProperties = {
-  height: TIKTOK_BAND_H,
+const HUD_BACKGROUND_STYLE: CSSProperties = {
   backgroundImage: `url("${BACKGROUND_URL}")`,
   backgroundSize: 'cover',
   backgroundPosition: 'center',
 };
 
-function TiktokBackdrop() {
-  return (
-    <>
-      <div className="absolute inset-x-0 top-0 z-0" style={BAND_STYLE} aria-hidden="true" />
-      <div className="absolute inset-x-0 z-0" style={{ ...BAND_STYLE, top: TIKTOK_LOWER_TOP }} aria-hidden="true" />
-    </>
-  );
+/** Centra verticalmente en el lienzo del HUD un elemento de ancho `width` escalado por `scale`. */
+function centeredTop(width: number, ratio: number, scale: number): number {
+  return (HUD_H - width * ratio * scale) / 2;
 }
+
+const HUD_DICE_PLACEMENT: Placement = {
+  className: '',
+  style: {
+    left: HUD_SIDE_MARGIN,
+    top: centeredTop(HUD_WIDTH, DICE_FRAME_RATIO, HUD_DICE_SCALE),
+    transform: `scale(${HUD_DICE_SCALE})`,
+    transformOrigin: 'top left',
+  },
+};
+
+const HUD_VOICE_PLACEMENT: Placement = {
+  className: '',
+  style: {
+    right: HUD_SIDE_MARGIN,
+    top: centeredTop(VOICE_HUD_WIDTH, VOICE_FRAME_RATIO, HUD_VOICE_SCALE),
+    transform: `scale(${HUD_VOICE_SCALE})`,
+    transformOrigin: 'top right',
+  },
+};

@@ -291,7 +291,7 @@ def run_build() -> None:
     log_run("Build completado.")
 
 
-def start_window(url: str, tiktok: bool = False) -> subprocess.Popen[str] | None:
+def start_window(url: str, name: str, layout: str | None, size: tuple[int, int]) -> subprocess.Popen[str] | None:
     """Lanza Edge en modo app con el overlay; no es crítico si falla."""
     edge = find_edge()
     if edge is None:
@@ -299,14 +299,11 @@ def start_window(url: str, tiktok: bool = False) -> subprocess.Popen[str] | None
         return None
 
     localappdata = os.environ.get("LOCALAPPDATA")
-    if localappdata:
-        profile_dir = Path(localappdata) / "SuperRolScreen" / "edge-profile"
-    else:
-        profile_dir = Path.home() / ".superrolscreen" / "edge-profile"
+    base = Path(localappdata) / "SuperRolScreen" if localappdata else Path.home() / ".superrolscreen"
+    profile_dir = base / f"edge-profile-{name}" if name != "overlay" else base / "edge-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    size = TIKTOK_WINDOW_SIZE if tiktok else LANDSCAPE_WINDOW_SIZE
-    url_to_open = with_layout(url, tiktok)
+    url_to_open = with_layout(url, layout)
 
     args = build_window_args(edge, url_to_open, profile_dir, size=size)
     try:
@@ -319,8 +316,7 @@ def start_window(url: str, tiktok: bool = False) -> subprocess.Popen[str] | None
     except OSError as exc:
         log_run(f"No se pudo lanzar Edge ({exc}); se omite la ventana (--window).")
         return None
-    log_run(f"Ventana Edge abierta en {url_to_open}")
-    log_run("Transmite en Discord la ventana 'SuperRolScreen' de Edge")
+    log_run(f"Ventana Edge '{name}' abierta en {url_to_open}")
     return proc
 
 
@@ -409,13 +405,14 @@ def stop_window(proc: subprocess.Popen[str] | None) -> None:
 
 def shutdown(
     bot: subprocess.Popen[str] | None,
+    edges: list[subprocess.Popen[str]],
     client: subprocess.Popen[str] | None,
     backend: subprocess.Popen[str] | None,
-    edge: subprocess.Popen[str] | None,
 ) -> None:
-    """Detiene en orden inverso al arranque: bot -> Edge -> Vite -> backend."""
+    """Detiene en orden inverso al arranque: bot -> ventanas -> Vite -> backend."""
     stop_process(bot, "bot")
-    stop_window(edge)
+    for edge in edges:
+        stop_window(edge)
     stop_process(client, "client")
     stop_process(backend, "backend")
 
@@ -446,18 +443,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--tiktok",
         action="store_true",
-        help="Layout vertical 1080x1920 para TikTok Live (?layout=tiktok)",
+        help="Dos ventanas para TikTok Live: gameplay 1920x1080 (?layout=gameplay) y HUD 1080x656 (?layout=hud)",
     )
     return parser.parse_args(argv)
 
 
 LANDSCAPE_WINDOW_SIZE = (1920, 1080)
-TIKTOK_WINDOW_SIZE = (1080, 1920)
+GAMEPLAY_WINDOW_SIZE = (1920, 1080)
+HUD_WINDOW_SIZE = (1080, 656)
 
 
-def with_layout(url: str, tiktok: bool) -> str:
-    """Añade ``?layout=tiktok`` a la URL del overlay cuando se pide el layout vertical."""
-    return f"{url}?layout=tiktok" if tiktok else url
+def with_layout(url: str, layout: str | None) -> str:
+    """Añade ``?layout=...`` a la URL del overlay cuando se pide un layout."""
+    if not layout:
+        return url
+    sep = '&' if '?' in url else '?'
+    return f"{url}{sep}layout={layout}"
+
+
+def window_specs(tiktok: bool) -> list[tuple[str, str | None, tuple[int, int]]]:
+    """(nombre, layout, tamaño) de cada ventana a abrir.
+    tiktok=False -> [("overlay", None, LANDSCAPE_WINDOW_SIZE)]
+    tiktok=True  -> [("gameplay", "gameplay", GAMEPLAY_WINDOW_SIZE),
+                     ("hud", "hud", HUD_WINDOW_SIZE)]
+    """
+    if not tiktok:
+        return [("overlay", None, LANDSCAPE_WINDOW_SIZE)]
+    return [
+        ("gameplay", "gameplay", GAMEPLAY_WINDOW_SIZE),
+        ("hud", "hud", HUD_WINDOW_SIZE),
+    ]
 
 
 def build_window_args(
@@ -535,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     backend: subprocess.Popen[str] | None = None
     client: subprocess.Popen[str] | None = None
     bot: subprocess.Popen[str] | None = None
-    edge: subprocess.Popen[str] | None = None
+    edges: list[subprocess.Popen[str]] = []
     exit_code = 0
 
     try:
@@ -548,23 +563,27 @@ def main(argv: list[str] | None = None) -> int:
         if wants_bot:
             bot = start_bot()
 
-        if args.window:
-            url = f"http://localhost:{CLIENT_PORT}" if args.mode == "dev" else f"http://localhost:{BACKEND_PORT}/overlay/"
-            if args.mode == "dev":
-                # En dev, esperar a que Vite esté disponible antes de abrir Edge.
-                log_run(f"Esperando a que Vite responda en {url} ...")
-                if wait_for_client():
-                    edge = start_window(url, tiktok=args.tiktok)
-                else:
-                    log_run("Vite no respondio a tiempo. No se abrira la ventana (--window).")
-            else:
-                # En obs, el health check del backend ya garantiza disponibilidad.
-                edge = start_window(url, tiktok=args.tiktok)
+        url = f"http://localhost:{CLIENT_PORT}/" if args.mode == "dev" else f"http://localhost:{BACKEND_PORT}/overlay/"
 
-        if args.mode == "obs":
-            log_run(f"Overlay OBS: {with_layout(f'http://localhost:{BACKEND_PORT}/overlay/', args.tiktok)}")
-        elif wants_client:
-            log_run(f"Overlay web: {with_layout(f'http://localhost:{CLIENT_PORT}/', args.tiktok)}")
+        if args.window:
+            # En dev hay que esperar a Vite; en obs el health check del backend basta.
+            ready = True
+            if args.mode == "dev":
+                log_run(f"Esperando a que Vite responda en {url} ...")
+                ready = wait_for_client()
+                if not ready:
+                    log_run("Vite no respondio a tiempo. No se abriran las ventanas (--window).")
+            if ready:
+                for name, layout, size in window_specs(args.tiktok):
+                    proc = start_window(url, name, layout, size)
+                    if proc is not None:
+                        edges.append(proc)
+
+        if args.mode == "obs" or wants_client:
+            label = "OBS" if args.mode == "obs" else "web"
+            for name, layout, _size in window_specs(args.tiktok):
+                suffix = "" if layout is None else f" {name}"
+                log_run(f"Overlay {label}{suffix}: {with_layout(url, layout)}")
 
         activos = ["backend"]
         if client is not None:
@@ -598,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = int(exc.code or 0)
         raise
     finally:
-        shutdown(bot, edge, client, backend)
+        shutdown(bot=bot, edges=edges, client=client, backend=backend)
         log_run("Todo detenido.")
 
     return exit_code

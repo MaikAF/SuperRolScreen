@@ -10,7 +10,7 @@ SuperRolScreen es un overlay de **1920 × 1080** para partidas de rol transmitid
 - Con `/join`, el bot entra al canal de voz de quien lo invoca y envía al overlay los miembros del canal y quién está hablando (evento `VOICE_STATE`). El HUD de voz (abajo a la derecha) lista a los miembros con `🔈` cuando callan y `🔊·` cuando hablan. Con `/leave` sale, y también sale solo cuando no queda ninguna persona en el canal; entonces el HUD de voz muestra `STANDBY`.
 - Cuando el bot de música FlaviBot anuncia en el canal de música la canción que suena, muestra a media altura, en el borde izquierdo, un panel `NOW PLAYING:` con el título. Entra deslizándose, se queda 8 s y sale; una canción nueva reemplaza a la anterior.
 - Indica el estado de conexión con el backend mediante el LED del HUD.
-- Tiene una versión vertical de **1080 × 1920** para TikTok Live (`?layout=tiktok`): el gameplay queda centrado a ancho completo, `media/HUD/background.jpg` rellena las bandas de arriba y de abajo, y debajo del gameplay se muestran el HUD de dados (izquierda) y el de voz (derecha). Los medios de Discord aparecen sobre el gameplay y `NOW PLAYING` en la banda superior.
+- Para TikTok Live se divide en **dos ventanas** que se componen en el estudio. La de **gameplay** (`?layout=gameplay`, 1920 × 1080) muestra el video, los medios de Discord y `NOW PLAYING`, sin los HUD. La de **HUD** (`?layout=hud`, 1080 × 656) muestra `media/HUD/background.jpg` de fondo con el HUD de dados a la izquierda y el de voz a la derecha. Ambas se escalan enteras si la ventana es más pequeña que su lienzo.
 - Permite probar eventos manuales desde el propio equipo sin publicar mensajes en Discord.
 
 ## Requisitos
@@ -63,7 +63,7 @@ Desde la raíz del repositorio (o desde cualquier carpeta, indicando la ruta del
 .\run.ps1 --no-bot     # sin bot de Discord, para pruebas con /api/events
 .\run.ps1 --no-client  # solo backend + bot (sin Vite)
 .\run.ps1 --window     # además abre el overlay en una ventana dedicada de Edge (para transmitir)
-.\run.ps1 --window --tiktok   # ventana vertical 1080x1920 con el layout de TikTok (?layout=tiktok)
+.\run.ps1 --window --tiktok   # dos ventanas para TikTok: gameplay 1920x1080 y HUD 1080x656
 ```
 
 El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
@@ -109,7 +109,7 @@ npm run build
 
 Con `client/dist/` disponible, inicia el backend y el bot como se indicó arriba. En OBS agrega una **fuente de navegador** con la URL `http://localhost:8000/overlay/` y dimensiones de **1920 × 1080**. La salida tiene fondo transparente. Si no quieres reproducir audio desde el navegador, desactiva el audio de esa fuente o configúrala según tu mezcla de OBS.
 
-Para TikTok Live (TikTok Live Studio u OBS con lienzo vertical) usa `http://localhost:8000/overlay/?layout=tiktok` con dimensiones de **1080 × 1920**. Con `--tiktok`, el orquestador muestra esa URL en su log. A diferencia del layout horizontal, la versión TikTok no es transparente: incluye el fondo y el gameplay. Ten en cuenta que los comentarios y los botones de TikTok se superponen a la parte inferior, donde están los HUD.
+Para TikTok Live, `.\run.ps1 --window --tiktok` abre dos ventanas de Edge: **SuperRolScreen · Gameplay** (1920 × 1080) y **SuperRolScreen · HUD** (1080 × 656). Cada una usa su propio perfil (`edge-profile-gameplay` y `edge-profile-hud`), y Ctrl+C cierra las dos. En TikTok Live Studio, captura cada ventana: el gameplay en el centro, escalado a 1080 × 608, y el HUD en la banda superior (1080 × 656); la banda inferior queda para tu propia imagen, porque ahí TikTok pone los comentarios y los botones. Si prefieres fuentes de navegador, usa `http://localhost:8000/overlay/?layout=gameplay` y `…/overlay/?layout=hud` con esos tamaños. Sin `--window`, el orquestador muestra las dos URLs en su log. Ninguna de las dos es transparente.
 
 El backend de ejemplo escucha en `127.0.0.1`. Mantén ese enlace local y no expongas el puerto 8000 a redes externas.
 

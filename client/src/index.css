@@ -39,11 +39,20 @@ body,
   background: transparent;
 }
 
-html[data-layout='tiktok'],
-html[data-layout='tiktok'] body,
-html[data-layout='tiktok'] #root {
+/* HUD (1080×656, cover background.jpg) */
+html[data-layout='hud'],
+html[data-layout='hud'] body,
+html[data-layout='hud'] #root {
   width: 1080px;
-  height: 1920px;
+  height: 656px;
+  background: #000;
+}
+
+/* Gameplay (1920×1080) — negro para fondo al escalar */
+html[data-layout='gameplay'],
+html[data-layout='gameplay'] body,
+html[data-layout='gameplay'] #root {
+  background: #000;
 }
 
 body {
