@@ -168,7 +168,7 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `client/package.json` | Scripts `dev`, `build`, `preview` y dependencias del cliente. |
 | `client/tsconfig.json` | Opciones TypeScript estrictas para el código cliente. |
 | `client/tsconfig.node.json` | Configuración de TypeScript para la configuración de Vite. |
-| `client/vite.config.ts` | Plugin React y servidor de desarrollo en puerto 5173. |
+| `client/vite.config.ts` | Plugin React y servidor de desarrollo en `127.0.0.1:5173` (`strictPort`: falla si el puerto está ocupado, no busca otro). |
 | `client/tailwind.config.js` | Rutas de contenido que Tailwind inspecciona para generar clases. |
 | `client/postcss.config.js` | Plugins PostCSS: Tailwind CSS y Autoprefixer. |
 | `client/dist/` | Salida generada por `npm run build`; FastAPI la sirve bajo `/overlay/` cuando existe. |
@@ -188,7 +188,7 @@ Límites definidos en `server/config.py`: 60 MiB por descarga, 200 archivos de c
 
 ## 6. Interfaces HTTP y WebSocket
 
-El backend de desarrollo se ejecuta en `127.0.0.1:8000`. Los orígenes CORS permitidos para la interfaz web son `http://localhost:5173` y `http://127.0.0.1:5173`.
+El backend de desarrollo se ejecuta en `127.0.0.1:8000` y el servidor de Vite en `127.0.0.1:5173`; ninguno es accesible desde la LAN. Los orígenes CORS permitidos para la interfaz web son `http://localhost:5173` y `http://127.0.0.1:5173`.
 
 | Método/ruta | Uso y respuesta |
 |---|---|

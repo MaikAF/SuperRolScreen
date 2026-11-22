@@ -99,8 +99,7 @@ def port_is_free(port: int) -> bool:
 
     No se usa SO_REUSEADDR: en Windows permite enlazar un puerto ya ocupado y
     el chequeo daria falsos negativos. Ademas se intenta conectar, porque un
-    servidor escuchando en 0.0.0.0/:: (Vite con host:true) no siempre impide
-    enlazar 127.0.0.1.
+    servidor escuchando en 0.0.0.0/:: no siempre impide enlazar 127.0.0.1.
     """
     for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
         try:

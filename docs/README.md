@@ -92,7 +92,7 @@ npm run dev
 .\.venv\Scripts\python.exe discord_listener.py
 ```
 
-Abre `http://localhost:5173` para ver el overlay. El LED del HUD muestra el estado del enlace con el backend: cian indica conectado, ámbar indica conexión en curso y rojo indica desconectado. El cliente intenta reconectarse al backend y el bot reintenta su conexión WebSocket.
+Abre `http://localhost:5173` para ver el overlay. Vite escucha solo en `127.0.0.1`, así que el overlay de desarrollo no se puede abrir desde otro equipo de la red. El LED del HUD muestra el estado del enlace con el backend: cian indica conectado, ámbar indica conexión en curso y rojo indica desconectado. El cliente intenta reconectarse al backend y el bot reintenta su conexión WebSocket.
 
 ## Transmitir la ventana por Discord
 

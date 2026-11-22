@@ -10,6 +10,5 @@ CIERRE: actualiza README.md y ANALISIS_DE_SOFTWARE.md si cambió algo que descri
 
 Reparto: Copilot = código acotado, tests unitarios, smoke test. Claude = revisión del diff, correcciones, verificación integrada. Yo = prueba manual final.
 
-TAREA:
-Seguir con labor de diseño de tiktok. Ya que la ventana tiene problemas para ejecutarse en la resolución vertical, sugiero que la opción --tiktok genere 2 ventanas diferentes, Ventana 1: gameplay donde se hace overlay de musica y media. Ventana 2: hud de dados y voz con background.jpg de fondo. De esta forma, en el estudio coloco el gameplay en el centro, el hud arriba y abajo solo sera una imagen plana con herramientas y notificaciones de tiktok, de eso me encargo yo.
+TAREA: Leer [pendientes.md](http://pendientes.md) y realizar el primero de la lista que no esté tachado, una vez terminado el proceso de CIERRE, tacharlo de la lista.
 
