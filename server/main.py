@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import sys
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -84,7 +86,37 @@ def _validate_now_playing(payload: dict[str, Any]) -> dict[str, Any] | None:
 for directory in (GAMEPLAY_DIR, HUD_DIR, CACHE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SuperRolScreen API")
+
+def _ignore_proactor_reset(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    """Suprime la traza `ConnectionResetError` de _call_connection_lost en Windows.
+
+    Es un fallo conocido de CPython/asyncio en Windows (ProactorEventLoop): al
+    cerrarse un socket bruscamente (WebSocket, recarga de overlay), el transporte
+    intenta `shutdown()` sobre un socket ya reseteado por el host remoto. La
+    desconexión ya se gestiona en `websocket_endpoint`, así que esta traza es ruido
+    inofensivo. Cualquier otra excepción se pasa al handler por defecto.
+    """
+    exception = context.get("exception")
+    if isinstance(exception, (ConnectionResetError, ConnectionAbortedError)):
+        handle = context.get("handle")
+        message = context.get("message", "")
+        if handle is not None and "_call_connection_lost" in repr(handle):
+            log.debug("Ignorando ConnectionResetError de ProactorEventLoop en %s", repr(handle))
+            return
+        if "_call_connection_lost" in message:
+            log.debug("Ignorando ConnectionResetError de ProactorEventLoop (%s)", message)
+            return
+    loop.default_exception_handler(context)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    if sys.platform == "win32":
+        asyncio.get_running_loop().set_exception_handler(_ignore_proactor_reset)
+    yield
+
+
+app = FastAPI(title="SuperRolScreen API", lifespan=_lifespan)
 
 # Reemplaza la configuración de CORSMiddleware por esta:
 app.add_middleware(

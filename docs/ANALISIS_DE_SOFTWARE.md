@@ -143,7 +143,7 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 
 | Ruta | Responsabilidad |
 |---|---|
-| `server/main.py` | Crea la aplicación FastAPI, configura CORS, monta `/media` y opcionalmente `/overlay`, implementa HTTP, WebSocket y validación básica de eventos. |
+| `server/main.py` | Crea la aplicación FastAPI, configura CORS, monta `/media` y opcionalmente `/overlay`, implementa HTTP, WebSocket y validación básica de eventos. En Windows, su `lifespan` instala `_ignore_proactor_reset` como handler de excepciones del bucle: descarta el `ConnectionResetError`/`ConnectionAbortedError` de `_ProactorBasePipeTransport._call_connection_lost` (fallo de CPython al cerrarse un socket ya reseteado) y deja pasar cualquier otra excepción. |
 | `server/config.py` | Carga `server/.env`, centraliza rutas, valores de Discord, extensiones y límites del caché. |
 | `server/discord_listener.py` | Implementa `OverlayBot`, `OverlayLink`, el parser de tiradas, candidatos multimedia, reintentos y emisión de eventos. |
 | `server/music_detect.py` | Lógica pura de detección de avisos "now playing" del bot de música: `is_music_bot`, `extract_now_playing` y `clean_title`. |
@@ -153,6 +153,7 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `server/requirements.txt` | Lista de dependencias Python con versiones fijadas. |
 | `server/pyproject.toml` | Archivo existente, vacío en la configuración actual. |
 | `server/tests/smoke_test.py` | Pruebas de humo del caché y del backend con servidores/fixtures locales; no inicia un bot conectado a Discord. |
+| `server/tests/test_loop_handler.py` | Tests unitarios de `_ignore_proactor_reset` (qué excepciones del bucle se silencian y cuáles no). |
 | `server/tests/test_music_detect.py` | Tests unitarios de `music_detect` y de la validación de `NOW_PLAYING` en `main.validate_event`. |
 | `server/tests/test_voice_presence.py` | Tests unitarios de `voice_presence` y de la validación de `VOICE_STATE` en `main.validate_event`. |
 | `server/.env` | Configuración local no versionada que debe contener el token y los IDs de canales. |
