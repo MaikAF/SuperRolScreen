@@ -16,3 +16,6 @@ client/dist/
 media/cache/
 media/Gameplay/*
 !media/Gameplay/.gitkeep
+
+# pip freeze accidental en la raiz (el real es server/requirements.txt)
+/requirements.txt

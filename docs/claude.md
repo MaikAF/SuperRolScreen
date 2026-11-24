@@ -10,5 +10,7 @@ CIERRE: actualiza README.md y ANALISIS_DE_SOFTWARE.md si cambió algo que descri
 
 Reparto: Copilot = código acotado, tests unitarios, smoke test. Claude = revisión del diff, correcciones, verificación integrada. Yo = prueba manual final.
 
+Tareas críticas o difíciles de deshacer (borrar archivos, reescribir historial, migraciones, cambios de configuración o de dependencias, etc.): las haces tú, no Copilot; la ficha lo indica y en la Fase 2 la revisión del diff de Copilot se sustituye por tu propia verificación. Si además son modificaciones importantes, antes necesitas mi autorización, o las hago yo a mano. A Copilot solo se delegan tareas pesadas pero reversibles si algo sale mal.
+
 TAREA: Leer [pendientes.md](http://pendientes.md) y realizar el primero de la lista que no esté tachado, una vez terminado el proceso de CIERRE, tacharlo de la lista.
 

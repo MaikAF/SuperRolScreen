@@ -107,7 +107,7 @@ El cliente React valida y normaliza los mensajes recibidos, actualiza el HUD o a
 - **python-dotenv**: carga de variables desde `server/.env`.
 - **Starlette StaticFiles**, incorporado vía FastAPI/Starlette: distribución de archivos y build del cliente; soporta solicitudes Range para video.
 
-Las versiones instalables se fijan en `server/requirements.txt`. `server/pyproject.toml` existe actualmente sin configuración declarada.
+Las versiones instalables se fijan en `server/requirements.txt`, el único archivo de dependencias Python del repo. `.gitignore` ignora un `/requirements.txt` en la raíz, para que un `pip freeze >` accidental no se cuele en un commit. `server/pyproject.toml` existe actualmente sin configuración declarada.
 
 ### Cliente
 
