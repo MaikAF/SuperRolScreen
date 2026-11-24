@@ -89,11 +89,13 @@ if (LAYOUT === 'gameplay') {
   document.title = 'SuperRolScreen · HUD';
 }
 
-/** Hook: escala para ajustar lienzo al viewport (sin recortar). */
+/** Hook: escala para ajustar el lienzo al viewport (sin recortar). Solo reduce:
+ *  `html`/`body`/`#root` miden lo que el lienzo y recortarían un lienzo ampliado. */
 function useFitScale(w: number, h: number): number {
   const [scale, setScale] = useState(1);
   useEffect(() => {
-    const update = () => setScale(Math.min(window.innerWidth / w, window.innerHeight / h));
+    const update = () =>
+      setScale(Math.min(1, window.innerWidth / w, window.innerHeight / h));
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
@@ -1025,7 +1027,7 @@ export default function App() {
 
   const status = useOverlaySocket(handleEvent);
   const voiceForHud = status === 'open' ? voice : null;
-  // Hook incondicional (reglas de hooks); el layout horizontal no usa la escala.
+  // Hook incondicional (reglas de hooks); todos los layouts usan la escala.
   const isHud = LAYOUT === 'hud';
   const fitScale = useFitScale(isHud ? HUD_W : GAMEPLAY_W, isHud ? HUD_H : GAMEPLAY_H);
   const fitStyle = (w: number, h: number): CSSProperties => ({
@@ -1058,7 +1060,7 @@ export default function App() {
   }
 
   return (
-    <main className="relative h-[1080px] w-[1920px] overflow-hidden">
+    <main className="relative overflow-hidden" style={fitStyle(GAMEPLAY_W, GAMEPLAY_H)}>
       <h1 className="sr-only">SuperRolScreen — Overlay de partida de rol</h1>
       <GameplayLoop />
       <MediaStage item={current} phase={phase} onReady={onReady} onFail={onFail} />

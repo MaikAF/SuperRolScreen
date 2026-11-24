@@ -107,7 +107,7 @@ cd client
 npm run build
 ```
 
-Con `client/dist/` disponible, inicia el backend y el bot como se indicó arriba. En OBS agrega una **fuente de navegador** con la URL `http://localhost:8000/overlay/` y dimensiones de **1920 × 1080**. La salida tiene fondo transparente. Si no quieres reproducir audio desde el navegador, desactiva el audio de esa fuente o configúrala según tu mezcla de OBS.
+Con `client/dist/` disponible, inicia el backend y el bot como se indicó arriba. En OBS agrega una **fuente de navegador** con la URL `http://localhost:8000/overlay/` y dimensiones de **1920 × 1080**. La salida tiene fondo transparente. Si la ventana o la fuente miden menos de 1920 × 1080, el lienzo se reduce entero desde la esquina superior izquierda (nunca se amplía). Si no quieres reproducir audio desde el navegador, desactiva el audio de esa fuente o configúrala según tu mezcla de OBS.
 
 Para TikTok Live, `.\run.ps1 --window --tiktok` abre dos ventanas de Edge: **SuperRolScreen · Gameplay** (1920 × 1080) y **SuperRolScreen · HUD** (1080 × 656). Cada una usa su propio perfil (`edge-profile-gameplay` y `edge-profile-hud`), y Ctrl+C cierra las dos. En TikTok Live Studio, captura cada ventana: el gameplay en el centro, escalado a 1080 × 608, y el HUD en la banda superior (1080 × 656); la banda inferior queda para tu propia imagen, porque ahí TikTok pone los comentarios y los botones. Si prefieres fuentes de navegador, usa `http://localhost:8000/overlay/?layout=gameplay` y `…/overlay/?layout=hud` con esos tamaños. Sin `--window`, el orquestador muestra las dos URLs en su log. Ninguna de las dos es transparente.
 
