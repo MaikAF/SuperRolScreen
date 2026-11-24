@@ -8,9 +8,9 @@ $script = Join-Path $PSScriptRoot 'scripts\run.py'
 $venvPython = Join-Path $PSScriptRoot 'server\.venv\Scripts\python.exe'
 
 if (Test-Path $venvPython) {
-    & $venvPython $script @args
+    & $venvPython $script --parent-pid $PID @args
 } else {
     # Sin venv: el preflight de run.py explica como crearlo.
-    & py -3.12 $script @args
+    & py -3.12 $script --parent-pid $PID @args
 }
 exit $LASTEXITCODE

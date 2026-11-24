@@ -66,9 +66,9 @@ Desde la raíz del repositorio (o desde cualquier carpeta, indicando la ruta del
 .\run.ps1 --window --tiktok   # dos ventanas para TikTok: gameplay 1920x1080 y HUD 1080x656
 ```
 
-El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
+El orquestador (`scripts/run.py`) comprueba antes de arrancar que existan el venv, `client/node_modules` y `server/.env`, y que los puertos 8000 y 5173 estén libres. Arranca el backend, espera a que `/api/health` responda y después lanza Vite y el bot. Los registros de los tres procesos aparecen en la misma consola con los prefijos `[backend]`, `[client]` y `[bot]`. Pulsa **Ctrl+C** para detenerlo todo. Si cierras el terminal (por ejemplo, con la papelera de VS Code), el orquestador lo detecta y también lo detiene todo, en unos 20 s. Si el backend o Vite se cierran, se detiene todo; si se cae el bot, el overlay sigue activo.
 
-Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot`, `npm run dev:window`, `npm run dev:tiktok` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*).
+Si PowerShell bloquea la ejecución de scripts, usa `powershell -ExecutionPolicy Bypass -File .\run.ps1` en lugar de cambiar la política global. También están disponibles `npm run dev`, `npm run dev:nobot`, `npm run dev:window`, `npm run dev:tiktok` y `npm run obs` desde la raíz, y las tareas **SuperRol: …** de VS Code (*Terminal → Ejecutar tarea*), incluidas `dev --window`, `dev --window --tiktok` y `obs --window`.
 
 ## Iniciar en modo desarrollo (manual)
 

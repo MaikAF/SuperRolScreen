@@ -19,7 +19,11 @@ from scripts.run import (
     with_layout,
     window_specs,
     start_client,
+    open_parent,
+    parent_alive,
+    close_parent,
 )
+import subprocess
 
 class TestRun(unittest.TestCase):
     def test_build_window_args(self):
@@ -173,6 +177,32 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             start_client()
         self.assertEqual(cm.exception.code, 1)
+
+    def test_parse_args_parent_pid(self):
+        self.assertEqual(parse_args(["dev", "--parent-pid", "123"]).parent_pid, 123)
+        self.assertIsNone(parse_args(["dev"]).parent_pid)
+
+    @unittest.skipUnless(sys.platform == "win32", "solo Windows")
+    def test_parent_alive_tracks_real_process(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        handle = None
+        try:
+            handle = open_parent(child.pid)
+            self.assertIsNotNone(handle)
+            self.assertTrue(parent_alive(handle))
+            child.kill()
+            child.wait()
+            self.assertFalse(parent_alive(handle))
+        finally:
+            close_parent(handle)
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+
+    @unittest.skipUnless(sys.platform == "win32", "solo Windows")
+    def test_open_parent_missing_pid(self):
+        self.assertIsNone(open_parent(0x7FFFFFF0))
+        self.assertIsNone(open_parent(0))
 
 
 if __name__ == "__main__":

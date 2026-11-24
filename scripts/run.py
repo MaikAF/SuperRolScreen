@@ -77,6 +77,48 @@ def _get_node() -> str | None:
 VITE_BIN = NODE_MODULES / "vite" / "bin" / "vite.js"
 
 
+# --------------------------------------------------------------------------- #
+# Vigilancia del proceso que lanzo el orquestador (run.ps1)
+# --------------------------------------------------------------------------- #
+# Si se cierra el terminal de VS Code con la papelera, solo muere powershell.exe
+# y run.py no recibe ninguna senal. run.ps1 pasa su PID (--parent-pid) y aqui se
+# conserva un handle al proceso: el handle evita que la reutilizacion del PID
+# por Windows engane al chequeo.
+
+_SYNCHRONIZE = 0x00100000
+_WAIT_TIMEOUT = 0x00000102
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    _kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+
+
+def open_parent(pid: int) -> int | None:
+    """Abre un handle de sincronizacion al proceso pid; None si no se puede."""
+    if not IS_WINDOWS or pid <= 0:
+        return None
+    handle = _kernel32.OpenProcess(_SYNCHRONIZE, False, pid)
+    return handle or None
+
+
+def parent_alive(handle: int) -> bool:
+    """True mientras el proceso del handle siga vivo (WAIT_TIMEOUT)."""
+    return _kernel32.WaitForSingleObject(handle, 0) == _WAIT_TIMEOUT
+
+
+def close_parent(handle: int | None) -> None:
+    if handle:
+        _kernel32.CloseHandle(handle)
+
+
 def log(prefix: str, message: str) -> None:
     """Imprime una linea con prefijo, sin mezclarla con las de otros hilos."""
     if _USE_COLOR:
@@ -85,11 +127,16 @@ def log(prefix: str, message: str) -> None:
         line = f"[{prefix}] {message}"
     with _PRINT_LOCK:
         try:
-            print(line, flush=True)
-        except UnicodeEncodeError:
-            # Consola con codificacion limitada: degradar solo esta linea.
-            enc = sys.stdout.encoding or "ascii"
-            print(line.encode(enc, "replace").decode(enc), flush=True)
+            try:
+                print(line, flush=True)
+            except UnicodeEncodeError:
+                # Consola con codificacion limitada: degradar solo esta linea.
+                enc = sys.stdout.encoding or "ascii"
+                print(line.encode(enc, "replace").decode(enc), flush=True)
+        except (OSError, ValueError):
+            # Consola cerrada (p. ej. terminal de VS Code eliminado): el apagado
+            # debe seguir aunque ya no se pueda escribir.
+            pass
 
 
 def log_run(message: str) -> None:
@@ -455,6 +502,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Dos ventanas para TikTok Live: gameplay 1920x1080 (?layout=gameplay) y HUD 1080x656 (?layout=hud)",
     )
+    # Interno: lo pasa run.ps1 para apagar todo si muere su powershell.
+    parser.add_argument("--parent-pid", type=int, default=None, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
@@ -541,6 +590,18 @@ def _install_break_handler() -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     _install_break_handler()
+    parent = None
+    if args.parent_pid is not None:
+        parent = open_parent(args.parent_pid)
+        if parent is None:
+            log_run(f"Aviso: no se pudo vigilar el proceso lanzador (PID {args.parent_pid}).")
+    try:
+        return _main(args, parent)
+    finally:
+        close_parent(parent)
+
+
+def _main(args: argparse.Namespace, parent: int | None) -> int:
     wants_client = args.mode == "dev" and not args.no_client
     wants_bot = not args.no_bot
 
@@ -604,6 +665,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # Supervision: el backend y Vite son criticos; el bot no.
         while True:
+            if parent is not None and not parent_alive(parent):
+                log_run("La consola que lanzo el orquestador se cerro. Deteniendo todo.")
+                exit_code = 0
+                break
             if backend.poll() is not None:
                 log_run(f"El backend termino con codigo {backend.returncode}. Deteniendo todo.")
                 exit_code = backend.returncode or 1

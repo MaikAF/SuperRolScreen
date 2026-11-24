@@ -10,7 +10,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "${workspaceFolder}\run.ps1",
+        "${workspaceFolder}/run.ps1",
         "dev"
       ],
       "isBackground": true,
@@ -29,7 +29,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "${workspaceFolder}\run.ps1",
+        "${workspaceFolder}/run.ps1",
         "obs"
       ],
       "isBackground": true,
@@ -48,7 +48,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "${workspaceFolder}\run.ps1",
+        "${workspaceFolder}/run.ps1",
         "dev",
         "--no-bot"
       ],
@@ -68,9 +68,70 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "${workspaceFolder}\run.ps1",
+        "${workspaceFolder}/run.ps1",
         "dev",
         "--no-client"
+      ],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "SuperRol: dev --window",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/run.ps1",
+        "dev",
+        "--window"
+      ],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "SuperRol: dev --window --tiktok",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/run.ps1",
+        "dev",
+        "--window",
+        "--tiktok"
+      ],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "SuperRol: obs --window",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/run.ps1",
+        "obs",
+        "--window"
       ],
       "isBackground": true,
       "problemMatcher": [],
