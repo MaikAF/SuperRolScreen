@@ -122,11 +122,14 @@ async def test_media_cache() -> None:
 
 
 # ----------------------------------------------------------------------------
-def http_json(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+def http_json(method: str, path: str, body: dict | None = None, origin: str | None = None) -> tuple[int, dict]:
+    headers = {"Content-Type": "application/json"}
+    if origin is not None:
+        headers["Origin"] = origin
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
         f"http://127.0.0.1:{API_PORT}{path}", data=data, method=method,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -208,6 +211,53 @@ async def test_backend() -> None:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             check("Range requests en /media", resp.status == 206 and len(resp.read()) == 100, str(resp.status))
+
+        # --- CORS / Origin ---
+        def cors_header(origin: str) -> str | None:
+            r = urllib.request.Request(f"http://127.0.0.1:{API_PORT}/api/clips", headers={"Origin": origin})
+            with urllib.request.urlopen(r, timeout=5) as resp:
+                return resp.headers.get("access-control-allow-origin")
+
+        check("CORS: Origin 5173 -> eco del origen", cors_header("http://localhost:5173") == "http://localhost:5173")
+        check("CORS: Origin ajeno -> sin cabecera", cors_header("http://evil.test") is None)
+
+        roll = {"type": "DICE_ROLL", "user": "Origin", "dice_count": 2, "successes": 1}
+        async with websockets.connect(ws_url, additional_headers={"Origin": "http://localhost:5173"}) as overlay, \
+                websockets.connect(ws_url, additional_headers={"Origin": "http://localhost:8000"}) as sender:
+            # Un WS con Origin permitido (5173 y 8000) se acepta y reenvía.
+            await sender.send(json.dumps(roll))
+            got = json.loads(await asyncio.wait_for(overlay.recv(), 3))
+            check("WS con Origin permitido (5173 y 8000) -> conecta y reenvía", got == roll, str(got))
+
+            status, _ = http_json("POST", "/api/events", roll, origin="http://localhost:5173")
+            got = json.loads(await asyncio.wait_for(overlay.recv(), 3))
+            check("POST /api/events con Origin 5173 -> 200 y llega", status == 200 and got == roll, str(status))
+
+            # POST con Origin ajeno: JSON y text/plain (petición simple, sin preflight).
+            status, _ = http_json("POST", "/api/events", roll, origin="http://evil.test")
+            check("POST /api/events con Origin ajeno -> 403", status == 403, str(status))
+            r = urllib.request.Request(
+                f"http://127.0.0.1:{API_PORT}/api/events", data=json.dumps(roll).encode(), method="POST",
+                headers={"Content-Type": "text/plain", "Origin": "http://evil.test"},
+            )
+            try:
+                with urllib.request.urlopen(r, timeout=5) as resp:
+                    status = resp.status
+            except urllib.error.HTTPError as e:
+                status = e.code
+            check("POST text/plain con Origin ajeno -> 403", status == 403, str(status))
+            try:
+                await asyncio.wait_for(overlay.recv(), 0.7)
+                check("Los POST rechazados no llegan al overlay", False)
+            except asyncio.TimeoutError:
+                check("Los POST rechazados no llegan al overlay", True)
+
+            # WS con Origin ajeno: handshake rechazado con 403.
+            try:
+                async with websockets.connect(ws_url, additional_headers={"Origin": "http://evil.test"}):
+                    check("WS con Origin ajeno -> 403", False, "conectó")
+            except websockets.InvalidStatus as e:
+                check("WS con Origin ajeno -> 403", e.response.status_code == 403, str(e))
     finally:
         proc.terminate()
         proc.wait(5)

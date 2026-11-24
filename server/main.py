@@ -2,10 +2,14 @@
 
 * GET  /api/clips   -> lista de videos de media/Gameplay
 * GET  /api/health  -> estado del servicio y overlays conectados
-* POST /api/events  -> inyecta un evento manualmente (solo desde localhost, útil para pruebas)
-* WS   /ws          -> bus de eventos: lo que envía un cliente (el bot) se reenvía al resto (overlays)
+* POST /api/events  -> inyecta un evento manualmente (solo desde localhost, útil para pruebas);
+                       403 si trae un Origin de navegador no permitido
+* WS   /ws          -> bus de eventos: lo que envía un cliente (el bot) se reenvía al resto (overlays);
+                       rechaza el handshake (403) si trae un Origin no permitido
 * /media/...        -> archivos estáticos (Gameplay, HUD y cache de Discord)
 * /overlay/         -> build de producción del cliente (si existe client/dist)
+
+Orígenes de navegador permitidos: `ALLOWED_ORIGINS` (ver `origin_allowed`).
 """
 
 from __future__ import annotations
@@ -36,6 +40,21 @@ log = logging.getLogger("superrol.server")
 ALLOWED_EVENT_TYPES = {"DICE_ROLL", "NEW_MEDIA", "VOICE_STATE", "NOW_PLAYING"}
 
 NOW_PLAYING_TITLE_MAX = 120  # igual que music_detect y el cliente
+
+# Orígenes permitidos para CORS y WebSocket
+DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+ALLOWED_ORIGINS = frozenset(DEV_ORIGINS + ("http://localhost:8000", "http://127.0.0.1:8000"))
+
+
+def origin_allowed(origin: str | None) -> bool:
+    """True si la petición no trae Origin (bot, PowerShell, curl) o si el Origin está en
+    ALLOWED_ORIGINS (comparación exacta). Cualquier otro valor ('', 'null', otro puerto,
+    https, barra final, IP de LAN) se rechaza: así una web ajena abierta en el navegador
+    no puede abrir /ws ni inyectar en /api/events (CORS no protege ninguno de los dos)."""
+    if origin is None:
+        return True
+    return origin in ALLOWED_ORIGINS
+
 
 # --- Validación de VOICE_STATE -------------------------------------------
 VOICE_MAX_MEMBERS = 25
@@ -118,13 +137,13 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="SuperRolScreen API", lifespan=_lifespan)
 
-# Reemplaza la configuración de CORSMiddleware por esta:
+# CORS solo para orígenes de desarrollo (overlay Vite en localhost:5173)
+# El origen 8000 no necesita CORS (es el mismo origen que el overlay).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite cualquier origen local (localhost, 127.0.0.1 o tu IP local 192.168.x.x)
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(DEV_ORIGINS),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # Starlette sirve con soporte de Range requests (necesario para <video>).
@@ -197,6 +216,8 @@ async def health() -> dict[str, Any]:
 async def inject_event(request: Request) -> dict[str, Any]:
     if request.client is None or request.client.host not in {"127.0.0.1", "::1", "localhost"}:
         raise HTTPException(status_code=403, detail="Solo disponible desde localhost")
+    if not origin_allowed(request.headers.get("origin")):
+        raise HTTPException(status_code=403, detail="Origen no permitido")
     event = validate_event(await request.json())
     if event is None:
         raise HTTPException(status_code=422, detail="Evento inválido")
@@ -206,6 +227,11 @@ async def inject_event(request: Request) -> dict[str, Any]:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    origin = ws.headers.get("origin")
+    if not origin_allowed(origin):
+        log.warning("Conexion WS rechazada: origen %.100s", origin)
+        await ws.close(code=1008)
+        return
     await manager.connect(ws)
     try:
         while True:

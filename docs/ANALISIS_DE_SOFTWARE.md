@@ -153,7 +153,8 @@ El manifiesto del cliente es `client/package.json`; `npm ci` instala las version
 | `server/inspect_bot.py` | Herramienta manual que conecta a Discord e imprime datos y embeds de los canales de dados, medios y música (incluidas las ediciones en música, con el resultado de `music_detect`). |
 | `server/requirements.txt` | Lista de dependencias Python con versiones fijadas. |
 | `server/pyproject.toml` | Archivo existente, vacío en la configuración actual. |
-| `server/tests/smoke_test.py` | Pruebas de humo del caché y del backend con servidores/fixtures locales; no inicia un bot conectado a Discord. |
+| `server/tests/smoke_test.py` | Pruebas de humo del caché y del backend con servidores/fixtures locales (incluidos CORS y el rechazo de `Origin` ajenos en `/api/events` y `/ws`); no inicia un bot conectado a Discord. |
+| `server/tests/test_origin.py` | Tests unitarios de `origin_allowed` (orígenes aceptados y rechazados). |
 | `server/tests/test_loop_handler.py` | Tests unitarios de `_ignore_proactor_reset` (qué excepciones del bucle se silencian y cuáles no). |
 | `server/tests/test_music_detect.py` | Tests unitarios de `music_detect` y de la validación de `NOW_PLAYING` en `main.validate_event`. |
 | `server/tests/test_voice_presence.py` | Tests unitarios de `voice_presence` y de la validación de `VOICE_STATE` en `main.validate_event`. |
@@ -190,14 +191,14 @@ Límites definidos en `server/config.py`: 60 MiB por descarga, 200 archivos de c
 
 ## 6. Interfaces HTTP y WebSocket
 
-El backend de desarrollo se ejecuta en `127.0.0.1:8000` y el servidor de Vite en `127.0.0.1:5173`; ninguno es accesible desde la LAN. Los orígenes CORS permitidos para la interfaz web son `http://localhost:5173` y `http://127.0.0.1:5173`.
+El backend de desarrollo se ejecuta en `127.0.0.1:8000` y el servidor de Vite en `127.0.0.1:5173`; ninguno es accesible desde la LAN. Los orígenes CORS permitidos para la interfaz web son `http://localhost:5173` y `http://127.0.0.1:5173` (solo GET/POST, sin credenciales). Como CORS no frena los WebSocket ni los POST «simples» (`text/plain`, sin preflight), `origin_allowed()` revisa además la cabecera `Origin` en `POST /api/events` y en `/ws`: se acepta si falta (bot, PowerShell, curl) o si coincide exactamente con `ALLOWED_ORIGINS` (los dos de Vite más `http://localhost:8000` y `http://127.0.0.1:8000`, el del overlay de producción); cualquier otro valor se rechaza. Así, una web ajena abierta en el navegador del equipo no puede inyectar eventos en el overlay.
 
 | Método/ruta | Uso y respuesta |
 |---|---|
 | `GET /api/health` | Devuelve `{"status":"ok","ws_clients":N}`. Comprueba el proceso y cantidad de conexiones, no la conexión de Discord. |
 | `GET /api/clips` | Devuelve `{"clips":["archivo.mp4", ...]}` ordenados alfabéticamente. Solo incluye archivos de extensiones admitidas en `media/Gameplay/`. |
-| `POST /api/events` | Valida y distribuye un evento. Solo permite clientes localhost; responde `403` para otro cliente y `422` para evento inválido. |
-| `WS /ws` | Recibe eventos JSON del cliente emisor y los reenvía a los demás clientes conectados. Mensajes inválidos se descartan. |
+| `POST /api/events` | Valida y distribuye un evento. Solo permite clientes localhost sin `Origin` ajeno; responde `403` para otro cliente o un origen no permitido, y `422` para evento inválido. |
+| `WS /ws` | Recibe eventos JSON del cliente emisor y los reenvía a los demás clientes conectados. Mensajes inválidos se descartan. Un handshake con `Origin` no permitido se rechaza con `403` antes de aceptarlo (`Conexion WS rechazada` en el log). |
 | `/media/{ruta}` | Sirve los archivos de `media/`, incluidos Gameplay, HUD y caché. |
 | `/overlay/` | Sirve `client/dist/` si ese directorio existía al iniciar el backend. |
 
@@ -297,7 +298,7 @@ La suite levanta una aplicación de fixtures HTTP en el puerto 8766 y un backend
 3. **Nuevas fuentes o formatos multimedia:** ampliar la extracción en `discord_listener.py`, la detección/resolución en `media_cache.py` y el fallback del cliente. Añadir pruebas que representen respuestas HTTP y bytes de contenido reales.
 4. **Cambios de escena/HUD:** ajustar componentes y constantes en `App.tsx`, actualizar las reglas vinculadas en `index.css` y probar tanto Vite como el build servido bajo `/overlay/`.
 5. **Más canales o eventos concurrentes:** mantener el orden y la deduplicación del procesador, revisar límites de cola y caducidad, y decidir explícitamente el comportamiento cuando backend o overlay no están disponibles.
-6. **Exposición fuera de localhost:** requiere diseñar autenticación/autorización para HTTP y WebSocket, configuración de orígenes y manejo de secretos antes de cambiar el host de escucha. CORS por sí solo no autentica clientes WebSocket.
+6. **Exposición fuera de localhost:** requiere diseñar autenticación/autorización para HTTP y WebSocket, configuración de orígenes y manejo de secretos antes de cambiar el host de escucha. La comprobación de `Origin` solo protege frente a páginas del navegador; no autentica procesos locales ni clientes de la red.
 
 ## 10. Límites y validaciones pendientes
 

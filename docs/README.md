@@ -134,7 +134,7 @@ Desde `server/`, ejecuta:
 .\.venv\Scripts\python.exe tests\smoke_test.py
 ```
 
-Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket (incluida la validación de `VOICE_STATE`) y las solicitudes HTTP Range. La lógica de presencia de voz tiene tests unitarios propios: `.\.venv\Scripts\python.exe tests\test_voice_presence.py`. El detector de canciones también: `.\.venv\Scripts\python.exe tests\test_music_detect.py`. Y el filtro de excepciones del bucle de eventos: `.\.venv\Scripts\python.exe tests\test_loop_handler.py`. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
+Las pruebas usan los puertos locales 8765 y 8766, y comprueban el procesamiento de medios, el backend, el WebSocket (incluida la validación de `VOICE_STATE`), el rechazo de orígenes de navegador ajenos y las solicitudes HTTP Range. La lógica de presencia de voz tiene tests unitarios propios: `.\.venv\Scripts\python.exe tests\test_voice_presence.py`. El detector de canciones también: `.\.venv\Scripts\python.exe tests\test_music_detect.py`. Y el filtro de excepciones del bucle de eventos: `.\.venv\Scripts\python.exe tests\test_loop_handler.py`. Y la lista de orígenes permitidos: `.\.venv\Scripts\python.exe tests\test_origin.py`. No necesitan iniciar sesión en Discord; asegúrate de que esos puertos estén libres.
 
 ## Ayuda
 
