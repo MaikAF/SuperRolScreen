@@ -69,6 +69,14 @@ def _get_npm() -> str | None:
     return shutil.which("npm.cmd" if IS_WINDOWS else "npm")
 
 
+def _get_node() -> str | None:
+    """Devuelve la ruta a node (node.exe en Windows) o None si no esta en el PATH."""
+    return shutil.which("node.exe" if IS_WINDOWS else "node")
+
+
+VITE_BIN = NODE_MODULES / "vite" / "bin" / "vite.js"
+
+
 def log(prefix: str, message: str) -> None:
     """Imprime una linea con prefijo, sin mezclarla con las de otros hilos."""
     if _USE_COLOR:
@@ -226,13 +234,16 @@ def start_backend() -> subprocess.Popen[str]:
 
 
 def start_client() -> subprocess.Popen[str]:
-    """Lanza el servidor de desarrollo de Vite."""
-    npm = _get_npm()
-    if npm is None:
-        log_run("No se encontro npm en el PATH. Instala Node.js 22 (README -> Requisitos).")
+    """Lanza el servidor de desarrollo de Vite directamente con node."""
+    node = _get_node()
+    if node is None:
+        log_run("No se encontro node en el PATH. Instala Node.js 22 (README -> Requisitos).")
+        raise SystemExit(1)
+    if not VITE_BIN.is_file():
+        log_run(f"No se encontro {VITE_BIN}. Ejecuta 'npm ci' en client/.")
         raise SystemExit(1)
     log_run(f"Iniciando overlay Vite en http://localhost:{CLIENT_PORT} ...")
-    proc = _spawn([npm, "run", "dev"], CLIENT_DIR)
+    proc = _spawn([node, str(VITE_BIN)], CLIENT_DIR)
     _start_reader(proc, "client")
     return proc
 

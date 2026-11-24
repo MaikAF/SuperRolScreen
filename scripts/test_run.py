@@ -18,6 +18,7 @@ from scripts.run import (
     find_edge,
     with_layout,
     window_specs,
+    start_client,
 )
 
 class TestRun(unittest.TestCase):
@@ -148,6 +149,30 @@ class TestRun(unittest.TestCase):
                 call.stop_process(backend, "backend"),
             ],
         )
+
+    @patch("scripts.run._spawn")
+    @patch("scripts.run._get_node", return_value="C:\\node.exe")
+    @patch("scripts.run._start_reader")
+    def test_start_client_spawns_with_node_and_vite_bin(self, mock_start_reader, mock_get_node, mock_spawn):
+        import scripts.run as run
+        mock_proc = unittest.mock.MagicMock()
+        mock_spawn.return_value = mock_proc
+
+        proc = run.start_client()
+
+        mock_spawn.assert_called_once()
+        args, kwargs = mock_spawn.call_args
+        # _spawn recibe (args_list, cwd)
+        self.assertEqual(args[0], ["C:\\node.exe", str(run.VITE_BIN)])
+        self.assertEqual(args[1], run.CLIENT_DIR)
+        mock_start_reader.assert_called_once_with(mock_proc, "client")
+        self.assertEqual(proc, mock_proc)
+
+    @patch("scripts.run._get_node", return_value=None)
+    def test_start_client_exits_when_node_not_found(self, mock_get_node):
+        with self.assertRaises(SystemExit) as cm:
+            start_client()
+        self.assertEqual(cm.exception.code, 1)
 
 
 if __name__ == "__main__":
