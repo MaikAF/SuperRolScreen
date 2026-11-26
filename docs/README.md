@@ -77,8 +77,10 @@ Si prefieres controlar cada proceso por separado, abre tres terminales PowerShel
 **1. Backend** (desde `server/`):
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 2
 ```
+
+`--timeout-graceful-shutdown 2` evita que Ctrl+C se quede colgado esperando a los videos que el navegador dejó a medio descargar.
 
 **2. Overlay web** (desde `client/`):
 

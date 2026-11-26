@@ -45,6 +45,11 @@ BACKEND_PORT = 8000
 CLIENT_PORT = 5173
 HEALTH_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/health"
 
+# uvicorn espera sin limite a las respuestas en curso al apagarse; los videos
+# (Range/206) que el navegador deja a medias lo bloqueaban hasta el taskkill /F.
+# Debe ser menor que la espera de stop_process() (5 s).
+BACKEND_GRACEFUL_SHUTDOWN_S = 2
+
 IS_WINDOWS = sys.platform == "win32"
 
 # --------------------------------------------------------------------------- #
@@ -273,6 +278,8 @@ def start_backend() -> subprocess.Popen[str]:
             BACKEND_HOST,
             "--port",
             str(BACKEND_PORT),
+            "--timeout-graceful-shutdown",
+            str(BACKEND_GRACEFUL_SHUTDOWN_S),
         ],
         SERVER_DIR,
     )

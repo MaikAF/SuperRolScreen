@@ -178,6 +178,40 @@ class TestRun(unittest.TestCase):
             start_client()
         self.assertEqual(cm.exception.code, 1)
 
+    @patch("scripts.run._spawn")
+    @patch("scripts.run._start_reader")
+    def test_start_backend_args(self, mock_start_reader, mock_spawn):
+        import scripts.run as run
+        mock_proc = unittest.mock.MagicMock()
+        mock_spawn.return_value = mock_proc
+
+        proc = run.start_backend()
+
+        mock_spawn.assert_called_once()
+        args, kwargs = mock_spawn.call_args
+        spawn_args = args[0]
+
+        # Comprobamos el cwd.
+        self.assertEqual(args[1], run.SERVER_DIR)
+
+        # Comprobamos que los argumentos de uvicorn son los esperados.
+        self.assertIn("main:app", spawn_args)
+        self.assertIn("--host", spawn_args)
+        self.assertEqual(spawn_args[spawn_args.index("--host") + 1], run.BACKEND_HOST)
+        self.assertIn("--port", spawn_args)
+        self.assertEqual(spawn_args[spawn_args.index("--port") + 1], str(run.BACKEND_PORT))
+
+        # El flag de apagado graceful debe ir seguido del valor de la constante.
+        self.assertIn("--timeout-graceful-shutdown", spawn_args)
+        idx = spawn_args.index("--timeout-graceful-shutdown")
+        self.assertEqual(spawn_args[idx + 1], str(run.BACKEND_GRACEFUL_SHUTDOWN_S))
+
+        # El graceful timeout es menor que la espera de stop_process() (5 s).
+        self.assertLess(run.BACKEND_GRACEFUL_SHUTDOWN_S, 5)
+
+        mock_start_reader.assert_called_once_with(mock_proc, "backend")
+        self.assertEqual(proc, mock_proc)
+
     def test_parse_args_parent_pid(self):
         self.assertEqual(parse_args(["dev", "--parent-pid", "123"]).parent_pid, 123)
         self.assertIsNone(parse_args(["dev"]).parent_pid)
