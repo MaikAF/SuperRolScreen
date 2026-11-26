@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 import os
 import shutil
@@ -9,6 +9,7 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(REPO_ROOT))
 
+import scripts.run as run
 from scripts.run import (
     build_window_args,
     GAMEPLAY_WINDOW_SIZE,
@@ -237,6 +238,30 @@ class TestRun(unittest.TestCase):
     def test_open_parent_missing_pid(self):
         self.assertIsNone(open_parent(0x7FFFFFF0))
         self.assertIsNone(open_parent(0))
+
+    @patch.object(run, "IS_WINDOWS", True)
+    @patch("scripts.run.subprocess.run")
+    def test_stop_window_forces_once_on_windows(self, mock_subprocess_run):
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.pid = 1234
+        run.stop_window(proc)
+        mock_subprocess_run.assert_called_once_with(
+            ["taskkill", "/PID", "1234", "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        proc.wait.assert_called_once_with(timeout=5)
+
+    @patch("scripts.run.subprocess.run")
+    def test_stop_window_skips_finished_process(self, mock_subprocess_run):
+        proc = MagicMock()
+        proc.poll.return_value = 0
+        run.stop_window(proc)
+        mock_subprocess_run.assert_not_called()
+
+        run.stop_window(None)
+        mock_subprocess_run.assert_not_called()
 
 
 if __name__ == "__main__":

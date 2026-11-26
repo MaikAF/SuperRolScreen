@@ -1,4 +1,4 @@
-# Ficha — El backend debe terminar con `CTRL_BREAK` sin que haya que forzarlo
+# Ficha — Cerrar las ventanas de Edge sin esperar 5 s cada una
 
 > ## 📌 PROCEDIMIENTO: el Reporte va en otro archivo
 >
@@ -19,55 +19,72 @@
 > | 7 | **Diseño a medias o tests que no pueden pasar** | 3 | CORS (11-24) | Ejecuta lo que escribes. Un test que no ejecutaste no cuenta. |
 > | 8 | **Salir del alcance** | 4 | Editar docs fuera de «Archivos permitidos» | Solo los archivos listados abajo, más `docs/copilot_report.md`. |
 >
-> En la ficha anterior (`MediaStage`, 2026-11-26) cumpliste todas las filas. Sigue así.
+> En las dos fichas anteriores (11-26) cumpliste todas las filas. Sigue así. Detalle menor de la última: no importes nombres que luego no usas.
 
 ## Contexto mínimo
 
-`scripts/run.py` lanza el backend con `python -m uvicorn main:app --host 127.0.0.1 --port 8000` (`start_backend()`) y, al apagar, `stop_process()` le envía `CTRL_BREAK` y espera 5 s. Si no ha salido, lo fuerza con `taskkill /T /F` y escribe en el log «backend sigue vivo; forzando cierre del arbol».
+Con `--window`, `scripts/run.py` abre Edge en modo app (`start_window()`), y al apagar `stop_window()` lo cierra así en Windows:
 
-Claude lo reprodujo y aisló la causa: al apagarse, uvicorn espera **sin límite** a que terminen las respuestas en curso. El overlay descarga los videos de `media/Gameplay/` con peticiones Range (`206`), y un navegador que no ha consumido toda la respuesta la deja abierta. Mediciones con uvicorn solo y un cliente que pide un `.mp4` con `Range: bytes=0-` y lee 64 KB:
+```python
+for force in (False, True):
+    cmd = ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else [])
+    subprocess.run(cmd, ...)
+    try:
+        proc.wait(timeout=5); return
+    except subprocess.TimeoutExpired:
+        continue
+```
 
-| uvicorn | cliente abierto | cliente cerrado con RST |
+Es decir, primero `taskkill /T` sin `/F` (`WM_CLOSE`), espera 5 s y después `/F`. Claude lo midió en el flujo real (`dev --no-bot --window --tiktok`, dos ventanas), parcheando `run.py` en memoria:
+
+| Variante | Cada `stop_window` | Apagado total |
 |---|---|---|
-| sin flag (como ahora) | **sigue vivo a los 15 s** | sale en 0,2 s |
-| `--timeout-graceful-shutdown 2` | sale en 2,2 s | sale en 0,3 s |
+| Actual | 5,2 s | 12,8 s |
+| Actual + `--disable-background-mode` en Edge | 5,2 s | 12,9 s |
+| `taskkill /T /F` directo | 0,12 s | 2,8 s |
 
-Sin navegador, el backend ya sale en menos de 1 s.
+El `WM_CLOSE` **nunca** cierra Edge: las ventanas acaban siempre en el `/F`. Pasar a `/F` directamente no cambia cómo termina Edge; solo elimina 5 s de espera por ventana. El perfil es propio de la app (`%LOCALAPPDATA%\SuperRolScreen\edge-profile*`), así que no hay estado del usuario que perder.
 
-Pendiente de origen: `docs/pendientes.md`, entrada del 2026-11-19 («El backend no termina con `CTRL_BREAK` en 5 s»).
+Pendiente de origen: `docs/pendientes.md`, entrada del 2026-11-24 («Cada ventana de Edge tarda unos 5 s en cerrarse al apagar»).
 
 ## Objetivo
 
-Que el backend lanzado por `run.py` termine solo con `CTRL_BREAK` aunque haya descargas de video a medias, sin llegar al `taskkill /F`.
+Que `stop_window()` cierre Edge en Windows con un único `taskkill /T /F`, sin la espera previa de 5 s.
 
 ## Diseño
 
-1. En `scripts/run.py`, junto a las demás constantes del backend (`BACKEND_HOST`, `BACKEND_PORT`), añade:
+1. En `scripts/run.py`, en `stop_window()`, sustituye **solo la rama de Windows** (el bucle `for force in (False, True)` y el `log_run` final) por:
    ```python
-   # uvicorn espera sin limite a las respuestas en curso al apagarse; los videos
-   # (Range/206) que el navegador deja a medias lo bloqueaban hasta el taskkill /F.
-   # Debe ser menor que la espera de stop_process() (5 s).
-   BACKEND_GRACEFUL_SHUTDOWN_S = 2
+   # WM_CLOSE (taskkill sin /F) nunca cerraba Edge: siempre se acababa en /F
+   # tras 5 s de espera. El perfil es propio de la app; no hay nada que perder.
+   subprocess.run(
+       ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+       stdout=subprocess.DEVNULL,
+       stderr=subprocess.DEVNULL,
+   )
+   try:
+       proc.wait(timeout=5)
+   except subprocess.TimeoutExpired:
+       log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
    ```
-2. En `start_backend()`, añade al final de la lista de argumentos de uvicorn: `"--timeout-graceful-shutdown", str(BACKEND_GRACEFUL_SHUTDOWN_S)`.
-3. En `scripts/test_run.py`, añade un test `test_start_backend_args`, con el mismo estilo que `test_start_client_spawns_with_node_and_vite_bin` (mock de `scripts.run._spawn` y `scripts.run._start_reader`). Debe comprobar que:
-   - los argumentos contienen `"--timeout-graceful-shutdown"` seguido de `str(run.BACKEND_GRACEFUL_SHUTDOWN_S)`;
-   - siguen estando `"main:app"`, `"--host", run.BACKEND_HOST` y `"--port", str(run.BACKEND_PORT)`;
-   - `cwd` es `run.SERVER_DIR`;
-   - `run.BACKEND_GRACEFUL_SHUTDOWN_S < 5`.
-4. **No** cambies `stop_process()`, el plazo de 5 s ni nada del apagado de Vite o Edge (son otros pendientes).
+2. Actualiza el docstring de `stop_window()`: quita «taskkill sin /F envia WM_CLOSE (cierre normal); /F solo si no basta» y pon que se cierra con `taskkill /T /F` porque `WM_CLOSE` no lo cerraba. Mantén la explicación de por qué no usa `stop_process()`/`CTRL_BREAK`.
+3. **No** cambies la rama no-Windows, `stop_process()`, `shutdown()`, `start_window()` ni `build_window_args()`.
+4. En `scripts/test_run.py`, añade dos tests, al estilo de los existentes (`unittest.mock.patch`):
+   - `test_stop_window_forces_once_on_windows`: con `patch.object(run, "IS_WINDOWS", True)` y `patch("scripts.run.subprocess.run")`, un `MagicMock` como `proc` con `poll.return_value = None` y `pid = 1234`. Tras `run.stop_window(proc)`: `subprocess.run` se llamó **una sola vez**, con primer argumento `["taskkill", "/PID", "1234", "/T", "/F"]`, y `proc.wait` se llamó con `timeout=5`.
+   - `test_stop_window_skips_finished_process`: con `proc.poll.return_value = 0` (y también con `proc=None`), `subprocess.run` no se llama.
+   Importa solo lo que uses.
 
 ## Archivos permitidos
 
 - `scripts/run.py`: puntos 1 y 2.
-- `scripts/test_run.py`: punto 3.
+- `scripts/test_run.py`: punto 4.
 - `docs/copilot_report.md`: el Reporte (sobrescribe el anterior).
 
 ## Fuera de alcance
 
-- `server/main.py`, `run.ps1`, `.vscode/tasks.json`.
-- `docs/pendientes.md`, `docs/README.md` (el comando manual de uvicorn lo actualiza Claude), `docs/ANALISIS_DE_SOFTWARE.md` y **esta ficha**.
-- Arrancar `run.ps1`, `run.py` o Edge. Hacer commits o stage.
+- `run.ps1`, `server/`, `client/`, `.vscode/tasks.json`.
+- `docs/pendientes.md`, `docs/README.md`, `docs/ANALISIS_DE_SOFTWARE.md` (los actualiza Claude) y **esta ficha**.
+- Arrancar `run.ps1`, `run.py`, Edge, uvicorn o Vite. Hacer commits o stage.
 
 ## Criterios de aceptación
 
@@ -75,16 +92,16 @@ Que el backend lanzado por `run.py` termine solo con `CTRL_BREAK` aunque haya de
 
 Ejecuta desde la raíz del repo, en PowerShell, y pega cada salida **completa**:
 
-1. `.\server\.venv\Scripts\python.exe -m unittest scripts.test_run -v` → todos `ok`, incluido `test_start_backend_args`. Pega la salida entera, con el número de tests.
-2. `.\server\.venv\Scripts\python.exe -m uvicorn --help | Select-String 'timeout-graceful-shutdown'` → la opción existe en la versión instalada.
-3. `git status --short` → ` M scripts/run.py`, ` M scripts/test_run.py` y ` M docs/copilot_report.md`. También aparecen ` M client/src/App.tsx`, ` M docs/ANALISIS_DE_SOFTWARE.md`, ` M docs/copilot_instructions.md` y ` M docs/pendientes.md`, que son de Claude y del usuario; no los toques. Ninguna otra línea.
+1. `.\server\.venv\Scripts\python.exe -m unittest scripts.test_run -v` → todos `ok` (deberían ser 18), incluidos los dos nuevos.
+2. `Select-String -Path scripts\run.py -Pattern 'for force in'` → **sin salida**.
+3. `git status --short` → exactamente ` M scripts/run.py`, ` M scripts/test_run.py`, ` M docs/copilot_report.md` y ` M docs/copilot_instructions.md` (esta ficha, escrita por Claude; tú no la tocas). Ninguna otra línea.
 4. `git diff scripts/run.py scripts/test_run.py` → solo lo del diseño.
 
 ### (b) Los verifican Claude y el usuario
 
-1. Claude: repetir la reproducción. `.\run.ps1 dev --no-bot` con un Edge que reproduce los videos; después se cierra Edge y se mata el `powershell.exe` padre. El log no debe decir «backend sigue vivo; forzando cierre del arbol», y el backend debe terminar en unos 2 s o menos.
-2. Claude: la reproducción con uvicorn solo y un `.mp4` a medio leer sale en unos 2 s.
-3. Usuario: cerrar `.\run.ps1 --window` con Ctrl+C tras un rato de uso y ver que el backend no se fuerza (las ventanas de Edge todavía tardan; es otro pendiente).
+1. Claude: `run.py dev --no-bot --window --tiktok` real; tras matar el `powershell.exe` padre, el apagado completo tarda unos 3 s (antes 12,8 s), y no queda ningún `msedge` con perfil `edge-profile*` de SuperRolScreen.
+2. Claude: al relanzar `--window`, la ventana abre normal (sin bloqueo de perfil). Como hoy ya terminaba siempre en `/F`, no debería cambiar nada.
+3. Usuario: Ctrl+C en `.\run.ps1 --window --tiktok` cierra las dos ventanas al instante.
 
 ## Instrucciones para Copilot
 
@@ -97,7 +114,7 @@ Ejecuta desde la raíz del repo, en PowerShell, y pega cada salida **completa**:
 ## Plantilla de `docs/copilot_report.md`
 
 ````markdown
-# Reporte de Copilot — Apagado del backend sin forzar
+# Reporte de Copilot — Cierre de Edge sin espera
 
 ## Cambios realizados
 <archivo:línea → qué>
@@ -106,7 +123,7 @@ Ejecuta desde la raíz del repo, en PowerShell, y pega cada salida **completa**:
 ```
 <salida>
 ```
-## (a)2 uvicorn --help
+## (a)2 'for force in' ya no está
 ```
 <salida>
 ```
@@ -130,30 +147,26 @@ Ejecuta desde la raíz del repo, en PowerShell, y pega cada salida **completa**:
 
 ## Revisión (Claude)
 
-**Veredicto:** aceptado. Lo ejecutó OpenCode como worker de Orca (`task_69d5fdaa9f4c`). El código cumple el diseño, el reporte coincide con el diff y no tocó ningún archivo fuera del alcance.
+**Veredicto:** aceptado sin correcciones. Lo ejecutó OpenCode como worker de Orca (`task_629caae9fe83`). El diff es exactamente el del diseño, el reporte coincide con él y no tocó nada fuera del alcance.
 
-**Diferencias entre el reporte y el diff:** ninguna de fondo.
-- (a)3 se ejecutó antes de escribir el reporte, por eso falta ` M docs/copilot_report.md`; lo explica en una nota.
-- La tabla ⚠️ esta vez está bien contestada («no toqué» en las filas 1 y 2).
+**Diferencias entre el reporte y el diff:** ninguna de fondo. «Cambios realizados» dice que añadió el import de `patch`, pero ya estaba; solo añadió `MagicMock` e `import scripts.run as run`. Los dos se usan.
 
-**Correcciones de Claude:** quité de `scripts/test_run.py` cinco imports sin usar (`BACKEND_GRACEFUL_SHUTDOWN_S`, `BACKEND_HOST`, `BACKEND_PORT`, `SERVER_DIR` y `start_backend`), porque el test usa `run.*`. Siguen pasando los 16 tests.
+**Correcciones de Claude:** ninguna. `unittest scripts.test_run`: 18 tests OK.
 
-**Seguridad:** nada relevante. Solo se añade un flag de uvicorn; no cambian host, puertos, CORS ni dependencias.
+**Seguridad:** nada relevante. Solo cambia cómo se termina un proceso hijo propio (el PID que devolvió `Popen`, con `/T` sobre su árbol); no hay entradas externas ni `shell=True`.
 
 **Verificación integrada (b), una ejecución:**
 ```
-(b)1 .\run.ps1 dev --no-bot + Edge headless que reproduce los videos (6 peticiones 206); se mata Edge y luego el powershell padre
-     [backend] INFO:     Shutting down
-     [backend] ERROR:    Cancel 0 running task(s), timeout graceful shutdown exceeded
-     [backend] INFO:     Finished server process [13792]
-     [run] Todo detenido.          -> 2,5 s, sin «backend sigue vivo; forzando cierre del arbol»
-     Antes del cambio, el mismo escenario acababa en «backend sigue vivo; forzando cierre del arbol».
-(b)2 uvicorn solo + un .mp4 a medio leer: sin el flag sigue vivo a los 15 s; con --timeout-graceful-shutdown 2 sale en 2,2 s (medido en el diagnóstico)
+(b)1 run.py dev --no-bot --window --tiktok (código del repo; un envoltorio solo cronometra stop_window)
+     [run] Cerrando ventana Edge (PID 29508) ...   stop_window 0,14 s
+     [run] Cerrando ventana Edge (PID 7484) ...    stop_window 0,17 s
+     'Todo detenido' a los 2,7 s   (antes: 12,8 s, con 5,2 s por ventana)
+     msedge con perfil de SuperRolScreen después: 0
+(b)2 relanzar --window: ventana 'overlay' abierta, conecta por WS y pide /api/clips; apagado en 3,1 s, 0 msedge restantes.
+     Las ventanas de (b)1 también se abrieron con normalidad tras perfiles cerrados con /F en las pruebas anteriores.
 ```
-Al final no quedó ningún proceso (`msedge`, uvicorn ni `run.py`) ni ningún `vite.config.ts.timestamp-*.mjs`.
+No quedó ningún proceso (uvicorn, Vite, `run.py`) ni ningún `vite.config.ts.timestamp-*.mjs`.
 
-**Cierre:** el README añade el flag al comando manual de uvicorn y explica para qué sirve. ANALISIS (§orquestación) documenta `BACKEND_GRACEFUL_SHUTDOWN_S` y que la línea `ERROR: … timeout graceful shutdown exceeded` es esperada.
+**Cierre:** ANALISIS (§orquestación) documenta el cierre con `/F` y su motivo. El README solo dice que «Ctrl+C cierra las dos» y sigue siendo correcto.
 
-**Pendientes:**
-- (b)3, para el usuario: cerrar `.\run.ps1 --window` con Ctrl+C tras un rato de uso. Las ventanas de Edge todavía tardan unos 5 s cada una (es otro pendiente).
-- El `GET /health` con 404 volvió a aparecer a mitad de la sesión, ya anotado en `pendientes.md`.
+**Pendientes:** (b)3, para el usuario: Ctrl+C en `.\run.ps1 --window --tiktok` debe cerrar las dos ventanas al instante.

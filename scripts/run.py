@@ -440,11 +440,12 @@ def stop_process(proc: subprocess.Popen[str] | None, name: str) -> None:
 
 
 def stop_window(proc: subprocess.Popen[str] | None) -> None:
-    """Cierra la ventana de Edge.
+    """Cierra la ventana de Edge con taskkill /T /F.
 
     No usa stop_process(): Edge no tiene grupo de consola propio y un
     CTRL_BREAK a su PID podria llegar a la consola del orquestador.
-    taskkill sin /F envia WM_CLOSE (cierre normal); /F solo si no basta.
+    WM_CLOSE (taskkill sin /F) nunca cerraba Edge: siempre acababa en /F
+    tras 5 s de espera, asi que se va directo a /F.
     """
     if proc is None or proc.poll() is not None:
         return
@@ -456,15 +457,17 @@ def stop_window(proc: subprocess.Popen[str] | None) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
         return
-    for force in (False, True):
-        cmd = ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else [])
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            proc.wait(timeout=5)
-            return
-        except subprocess.TimeoutExpired:
-            continue
-    log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
+    # WM_CLOSE (taskkill sin /F) nunca cerraba Edge: siempre se acababa en /F
+    # tras 5 s de espera. El perfil es propio de la app; no hay nada que perder.
+    subprocess.run(
+        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
 
 
 def shutdown(

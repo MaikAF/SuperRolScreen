@@ -1,10 +1,9 @@
-# Reporte de Copilot — Apagado del backend sin forzar
+# Reporte de Copilot — Cierre de Edge sin espera
 
 ## Cambios realizados
-scripts/run.py:49 → añadida la constante `BACKEND_GRACEFUL_SHUTDOWN_S = 2` con su comentario explicativo.
-scripts/run.py:281-282 → añadidos `"--timeout-graceful-shutdown", str(BACKEND_GRACEFUL_SHUTDOWN_S)` al final de los argumentos de uvicorn en `start_backend()`.
-scripts/test_run.py:13-15 → añadidas importaciones `BACKEND_GRACEFUL_SHUTDOWN_S`, `BACKEND_HOST`, `BACKEND_PORT`, `SERVER_DIR`, `start_backend`.
-scripts/test_run.py:186-221 → añadido test `test_start_backend_args` que comprueba los argumentos de uvicorn, el cwd, y que `BACKEND_GRACEFUL_SHUTDOWN_S < 5`.
+scripts/run.py:442-466 → reemplazado el bucle `for force in (False, True)` por un `taskkill /T /F` directo en `stop_window()`. Actualizado docstring para reflejar el cambio.
+scripts/test_run.py:3,24 → añadidas importaciones `MagicMock` y `patch` de unittest.mock, e import `scripts.run as run`.
+scripts/test_run.py:241-262 → añadidos tests `test_stop_window_forces_once_on_windows` y `test_stop_window_skips_finished_process`.
 
 ## (a)1 unittest scripts.test_run -v
 ```
@@ -25,135 +24,140 @@ test_start_client_exits_when_node_not_found (scripts.test_run.TestRun.test_start
 ok
 test_start_client_spawns_with_node_and_vite_bin (scripts.test_run.TestRun.test_start_client_spawns_with_node_and_vite_bin) ... [run] Iniciando overlay Vite en http://localhost:5173 ...
 ok
+test_stop_window_forces_once_on_windows (scripts.test_run.TestRun.test_stop_window_forces_once_on_windows) ... [run] Cerrando ventana Edge (PID 1234) ...
+ok
+test_stop_window_skips_finished_process (scripts.test_run.TestRun.test_stop_window_skips_finished_process) ... ok
 test_window_specs (scripts.test_run.TestRun.test_window_specs) ... ok
 test_with_layout (scripts.test_run.TestRun.test_with_layout) ... ok
 
 ----------------------------------------------------------------------
-Ran 16 tests in 0.011s
+Ran 18 tests in 0.012s
 
 OK
 ```
 
-## (a)2 uvicorn --help
+## (a)2 'for force in' ya no está
 ```
-  --timeout-graceful-shutdown INTEGER
-
+(no output)
 ```
 
 ## (a)3 git status --short
 ```
  M docs/copilot_instructions.md
- M docs/pendientes.md
+ M docs/copilot_report.md
  M scripts/run.py
  M scripts/test_run.py
 ```
-Nota: `docs/copilot_instructions.md` y `docs/pendientes.md` ya estaban modificados antes de empezar (no los toqué yo). `docs/copilot_report.md` no aparece porque se acaba de escribir tras este comando. Ninguna otra línea modificada por mí.
 
 ## (a)4 git diff scripts/run.py scripts/test_run.py
 ```
 warning: in the working copy of 'scripts/test_run.py', LF will be replaced by CRLF the next time Git touches it
 diff --git a/scripts/run.py b/scripts/run.py
-index 18b3532..c6e7f76 100644
+index c6e7f76..451e797 100644
 --- a/scripts/run.py
 +++ b/scripts/run.py
-@@ -45,6 +45,11 @@ BACKEND_PORT = 8000
- CLIENT_PORT = 5173
- HEALTH_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}/api/health"
+@@ -440,11 +440,12 @@ def stop_process(proc: subprocess.Popen[str] | None, name: str) -> None:
  
-+# uvicorn espera sin limite a las respuestas en curso al apagarse; los videos
-+# (Range/206) que el navegador deja a medias lo bloqueaban hasta el taskkill /F.
-+# Debe ser menor que la espera de stop_process() (5 s).
-+BACKEND_GRACEFUL_SHUTDOWN_S = 2
-+
- IS_WINDOWS = sys.platform == "win32"
  
- # --------------------------------------------------------------------------- #
-@@ -273,6 +278,8 @@ def start_backend() -> subprocess.Popen[str]:
-             BACKEND_HOST,
-             "--port",
-             str(BACKEND_PORT),
-+            "--timeout-graceful-shutdown",
-+            str(BACKEND_GRACEFUL_SHUTDOWN_S),
-         ],
-         SERVER_DIR,
-     )
+ def stop_window(proc: subprocess.Popen[str] | None) -> None:
+-    """Cierra la ventana de Edge.
++    """Cierra la ventana de Edge con taskkill /T /F.
+ 
+     No usa stop_process(): Edge no tiene grupo de consola propio y un
+     CTRL_BREAK a su PID podria llegar a la consola del orquestador.
+-    taskkill sin /F envia WM_CLOSE (cierre normal); /F solo si no basta.
++    WM_CLOSE (taskkill sin /F) nunca cerraba Edge: siempre acababa en /F
++    tras 5 s de espera, asi que se va directo a /F.
+     """
+     if proc is None or proc.poll() is not None:
+         return
+@@ -456,15 +457,17 @@ def stop_window(proc: subprocess.Popen[str] | None) -> None:
+         except subprocess.TimeoutExpired:
+             proc.kill()
+         return
+-    for force in (False, True):
+-        cmd = ["taskkill", "/PID", str(proc.pid), "/T"] + (["/F"] if force else [])
+-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+-        try:
+-            proc.wait(timeout=5)
+-            return
+-        except subprocess.TimeoutExpired:
+-            continue
+-    log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
++    # WM_CLOSE (taskkill sin /F) nunca cerraba Edge: siempre se acababa en /F
++    # tras 5 s de espera. El perfil es propio de la app; no hay nada que perder.
++    subprocess.run(
++        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
++        stdout=subprocess.DEVNULL,
++        stderr=subprocess.DEVNULL,
++    )
++    try:
++        proc.wait(timeout=5)
++    except subprocess.TimeoutExpired:
++        log_run(f"No se pudo cerrar Edge (PID {proc.pid}).")
+ 
+ 
+ def shutdown(
 diff --git a/scripts/test_run.py b/scripts/test_run.py
-index e71011f..a8663c7 100644
+index 25ebdc2..f933981 100644
 --- a/scripts/test_run.py
 +++ b/scripts/test_run.py
-@@ -10,6 +10,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
+@@ -1,5 +1,5 @@
+ import unittest
+-from unittest.mock import patch
++from unittest.mock import MagicMock, patch
+ from pathlib import Path
+ import os
+ import shutil
+@@ -9,6 +9,7 @@ import sys
+ REPO_ROOT = Path(__file__).resolve().parent.parent
  sys.path.append(str(REPO_ROOT))
  
++import scripts.run as run
  from scripts.run import (
-+    BACKEND_GRACEFUL_SHUTDOWN_S,
-+    BACKEND_HOST,
-+    BACKEND_PORT,
-+    SERVER_DIR,
      build_window_args,
      GAMEPLAY_WINDOW_SIZE,
-     HUD_WINDOW_SIZE,
-     LANDSCAPE_WINDOW_SIZE,
-     parse_args,
-     find_edge,
-     with_layout,
-     window_specs,
-+    start_backend,
-     start_client,
-     open_parent,
-     parent_alive,
-     close_parent,
- )
-@@ -178,6 +183,40 @@ class TestRun(unittest.TestCase):
-             start_client()
-         self.assertEqual(cm.exception.code, 1)
+@@ -238,6 +239,30 @@ class TestRun(unittest.TestCase):
+         self.assertIsNone(open_parent(0x7FFFFFF0))
+         self.assertIsNone(open_parent(0))
  
-+    @patch("scripts.run._spawn")
-+    @patch("scripts.run._start_reader")
-+    def test_start_backend_args(self, mock_start_reader, mock_spawn):
-+        import scripts.run as run
-+        mock_proc = unittest.mock.MagicMock()
-+        mock_spawn.return_value = mock_proc
++    @patch.object(run, "IS_WINDOWS", True)
++    @patch("scripts.run.subprocess.run")
++    def test_stop_window_forces_once_on_windows(self, mock_subprocess_run):
++        proc = MagicMock()
++        proc.poll.return_value = None
++        proc.pid = 1234
++        run.stop_window(proc)
++        mock_subprocess_run.assert_called_once_with(
++            ["taskkill", "/PID", "1234", "/T", "/F"],
++            stdout=subprocess.DEVNULL,
++            stderr=subprocess.DEVNULL,
++        )
++        proc.wait.assert_called_once_with(timeout=5)
 +
-+        proc = run.start_backend()
++    @patch("scripts.run.subprocess.run")
++    def test_stop_window_skips_finished_process(self, mock_subprocess_run):
++        proc = MagicMock()
++        proc.poll.return_value = 0
++        run.stop_window(proc)
++        mock_subprocess_run.assert_not_called()
 +
-+        mock_spawn.assert_called_once()
-+        args, kwargs = mock_spawn.call_args
-+        spawn_args = args[0]
++        run.stop_window(None)
++        mock_subprocess_run.assert_not_called()
 +
-+        # Comprobamos el cwd.
-+        self.assertEqual(args[1], run.SERVER_DIR)
-+
-+        # Comprobamos que los argumentos de uvicorn son los esperados.
-+        self.assertIn("main:app", spawn_args)
-+        self.assertIn("--host", spawn_args)
-+        self.assertEqual(spawn_args[spawn_args.index("--host") + 1], run.BACKEND_HOST)
-+        self.assertIn("--port", spawn_args)
-+        self.assertEqual(spawn_args[spawn_args.index("--port") + 1], str(run.BACKEND_PORT))
-+
-+        # El flag de apagado graceful debe ir seguido del valor de la constante.
-+        self.assertIn("--timeout-graceful-shutdown", spawn_args)
-+        idx = spawn_args.index("--timeout-graceful-shutdown")
-+        self.assertEqual(spawn_args[idx + 1], str(run.BACKEND_GRACEFUL_SHUTDOWN_S))
-+
-+        # El graceful timeout es menor que la espera de stop_process() (5 s).
-+        self.assertLess(run.BACKEND_GRACEFUL_SHUTDOWN_S, 5)
-+
-+        mock_start_reader.assert_called_once_with(mock_proc, "backend")
-+        self.assertEqual(proc, mock_proc)
-+
-     def test_parse_args_parent_pid(self):
-         self.assertEqual(parse_args(["dev", "--parent-pid", "123"]).parent_pid, 123)
-         self.assertIsNone(parse_args(["dev"]).parent_pid)
+ 
+ if __name__ == "__main__":
+     unittest.main()
 ```
 
 ## Repaso de la tabla ⚠️ (filas 1 a 8)
-1. Toqué pendientes.md: no (ya estaba modificado antes de empezar; no lo toqué yo)
-2. Toqué la ficha: no (no la modifiqué; solo la leí)
+1. Toqué pendientes.md: no
+2. Toqué la ficha: no
 3. Comandos de verificación ejecutados: sí (todas las salidas están pegadas arriba, completas)
-4. No afirmar sin probar: sí (todos los tests pasan, uvicorn --help confirma la opción, git status y git diff verificados)
+4. No afirmar sin probar: sí (todos los tests pasan, git status y git diff verificados)
 5. Salidas completas: sí (todas las salidas de terminal se pegaron sin recortar ni reescribir)
 6. Reporte no vacío: sí (todos los campos de la plantilla están rellenos)
-7. Tests que pueden pasar: sí (ejecuté unittest y los 16 tests pasan, incluido test_start_backend_args)
+7. Tests que pueden pasar: sí (ejecuté unittest y los 18 tests pasan, incluido los dos nuevos)
 8. Sin salir del alcance: sí (solo edité scripts/run.py y scripts/test_run.py, más docs/copilot_report.md)
 
 ## Bloqueos / notas
