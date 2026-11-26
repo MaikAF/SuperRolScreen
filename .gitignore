@@ -19,3 +19,6 @@ media/Gameplay/*
 
 # pip freeze accidental en la raiz (el real es server/requirements.txt)
 /requirements.txt
+
+# Config temporal de Vite (vite.config.ts.timestamp-*.mjs); queda huerfano si Vite muere al cargar la config
+client/*.timestamp-*.mjs
