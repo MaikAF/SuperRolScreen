@@ -263,7 +263,7 @@ Todo el overlay está implementado en `client/src/App.tsx`:
 - **`NowPlayingHud`** muestra el panel `NOW PLAYING:` + título (estética LED/CRT, `.np-panel` con `hud-screen` y `hud-scanlines`, sin imagen de chasis) a media altura, en el borde izquierdo, durante 8 s. La fase de salida va ligada al id del aviso, para que uno nuevo no arranque saliendo.
 - **`useMediaQueue`** encola eventos de medios hasta una capacidad de 10 y coordina las fases `loading`, `in` y `out`.
 - **`MediaElement`** presenta el medio como `<video>` o `<img>` y, ante un error, intenta el otro elemento una vez.
-- **`MediaStage`** posiciona el medio y aplica una animación de entrada aleatoria. El archivo permanece visible 8 segundos y sale con una animación de 700 ms; un medio que no carga en 10 segundos se descarta.
+- **`MediaStage`** posiciona el medio y aplica una animación de entrada aleatoria. Su caja (`MEDIA_STAGE_CLASS`, 900 × 640 en x 720–1620, y 110–750) se eligió para no cruzarse con el HUD de voz (x ≥ 1640), el de dados (x ≤ 460) ni `NOW PLAYING` (x ≤ 640); si cambia el tamaño de alguno, hay que revisarla. El archivo permanece visible 8 segundos y sale con una animación de 700 ms; un medio que no carga en 10 segundos se descarta.
 - **`App`** conecta el socket con el estado de tiradas y la cola de multimedia, y elige el layout.
 
 ### Layouts

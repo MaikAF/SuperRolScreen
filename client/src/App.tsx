@@ -21,6 +21,9 @@ const MEDIA_DISPLAY_MS = 8000; // tiempo visible en pantalla
 const MEDIA_EXIT_MS = 700; // debe coincidir con la duración de .ppt-out en index.css
 const MEDIA_LOAD_TIMEOUT_MS = 10000; // descarta medios que no cargan
 const MEDIA_MAX_QUEUE = 10;
+/** Caja del escenario de medios en el lienzo 1920×1080: x 720–1620, y 110–750.
+ * Deja 20 px hasta el HUD de voz (x ≥ 1640) y no toca DiceHud (x ≤ 460) ni NowPlaying (x ≤ 640). */
+const MEDIA_STAGE_CLASS = 'right-[300px] top-[110px] h-[640px] w-[900px]';
 
 const NOW_PLAYING_DISPLAY_MS = 8000; // tiempo visible en pantalla
 const NOW_PLAYING_EXIT_MS = 600; // debe coincidir con .np-out en index.css
@@ -892,7 +895,7 @@ function MediaStage({
   phase,
   onReady,
   onFail,
-  placement = { className: 'right-[120px] top-[110px] h-[640px] w-[900px]' },
+  placement = { className: MEDIA_STAGE_CLASS },
 }: {
   item: MediaItem | null;
   phase: MediaPhase;
